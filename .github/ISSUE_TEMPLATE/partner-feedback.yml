@@ -1,0 +1,165 @@
+name: Partner Engagement Feedback
+description: Form for collecting customer feedback on partner-delivered engagements
+title: "[Feedback]: "
+labels: ["feedback", "partner engagement", "metrics"]
+assignees: []
+body:
+  - type: dropdown
+    id: partner_name
+    attributes:
+      label: Partner Name
+      description: Select the partner who delivered the engagement
+      options:
+        - Infomagnus
+        - Xpirit/Xebia
+        - CEI
+        - Atmosera
+        - CleverIT
+        - Andela
+        - Other
+    validations:
+      required: true
+      
+  - type: input
+    id: other_partner
+    attributes:
+      label: If Other, specify partner name
+      description: Enter the partner name if not in the dropdown list
+      
+  - type: input
+    id: date_completed
+    attributes:
+      label: Date Completed
+      description: When was the engagement completed? (YYYY-MM-DD)
+      placeholder: "2025-07-08"
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: engagement_type
+    attributes:
+      label: Engagement Type
+      description: Select the type of engagement delivered
+      options:
+        - Implementation
+        - Advisory
+        - Training
+        - Migration Support
+        - Copilot Adoption
+        - Other
+    validations:
+      required: true
+      
+  - type: input
+    id: engagement_name
+    attributes:
+      label: Engagement Name
+      description: The name or title of the engagement
+      placeholder: "GitHub Enterprise Cloud Implementation"
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: engagement_status
+    attributes:
+      label: Engagement Status
+      description: Current status of the engagement
+      options:
+        - Completed
+        - In Progress
+        - Extended
+        - On Hold
+    validations:
+      required: true
+      
+  - type: input
+    id: responses_received
+    attributes:
+      label: Number of Responses Received
+      description: How many customer responses were collected for this feedback
+      placeholder: "3"
+    validations:
+      required: true
+      
+  - type: input
+    id: avg_satisfaction
+    attributes:
+      label: AVG Overall Customer Satisfaction
+      description: Average overall satisfaction score (1-5)
+      placehlder: "5"
+    validations:
+      required: true
+      
+  - type: input
+    id: avg_quality
+    attributes:
+      label: AVG Quality of Work/Material
+      description: Average score for quality of work/materials (1-5)
+     placehlder: "5"
+    validations:
+      required: true
+      
+  - type: input
+    id: avg_communication
+    attributes:
+      label: AVG Effectiveness of Communication
+      description: Average score for communication effectiveness (1-5)
+      placehlder: "5"
+    validations:
+      required: true
+      
+  - type: input
+    id: avg_impact
+    attributes:
+      label: AVG Impact/Value of Service
+      description: Average score for impact/value of service (1-5)
+      placehlder: "5"
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: vertical
+    attributes:
+      label: Vertical
+      description: Industry vertical of the customer
+      options:
+        - AMER 
+        - AMER-Corps
+        - EMEA
+        - APAC
+        - Other
+    validations:
+      required: true
+      
+  - type: textarea
+    id: customer_suggestions
+    attributes:
+      label: Customer Suggestions/Comments
+      description: Customer suggestions, feedback and comments
+      placeholder: "Customers mentioned that..."
+    validations:
+      required: false
+      
+  - type: textarea
+    id: recommendations
+    attributes:
+      label: Recommendations for GitHub
+      description: Any recommendations you have based on this engagement
+      placeholder: "Based on customer feedback, we recommend..."
+    validations:
+      required: false
+      
+  - type: textarea
+    id: addon_products
+    attributes:
+      label: Suggested Add-on Products
+      description: Any additional GitHub products the customer expressed interest in
+      placeholder: "Customer showed interest in..."
+    validations:
+      required: false
+      
+  - type: markdown
+    attributes:
+      value: |
+        ## CSAT Score
+        *This will be calculated automatically based on the average scores above.*
