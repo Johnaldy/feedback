@@ -31,9 +31,38 @@ This repository implements a feedback collection and analysis system using GitHu
 2. Use the [Project board](https://github.com/johnaldy/partner_feedback/projects) for visualization and analysis
 3. Filter feedback by partner, engagement type, or CSAT score using labels
 
-## Documentation
+## Metrics Collected
 
-For detailed instructions on using this system, please see the [Partner Feedback Guide](docs/partner-feedback-guide.md).
+The feedback system collects the following metrics:
+- Partner Name
+- Date Completed
+- Engagement Type
+- Engagement Name
+- Engagement Status
+- Number of Responses Received
+- AVG Overall Customer Satisfaction (1-5 scale)
+- AVG Quality of Work/Material (1-5 scale)
+- AVG Effectiveness of Communication (1-5 scale)
+- AVG Impact/Value of Service (1-5 scale)
+- Vertical (AMER, EMEA, APAC, etc.)
+- Customer Suggestions/Comments
+- Recommendations for GitHub
+- Suggested Add-on Products
+- CSAT Score (calculated automatically)
+
+## CSAT Score Calculation
+
+The CSAT (Customer Satisfaction) score is calculated as the average of four metrics:
+1. Overall Satisfaction
+2. Quality of Work/Material
+3. Effectiveness of Communication
+4. Impact/Value of Service
+
+Scores are categorized as:
+- **Excellent**: 4.5 - 5.0
+- **Good**: 4.0 - 4.49
+- **Average**: 3.0 - 3.99
+- **Needs Attention**: Below 3.0
 
 ## Implementation Details
 
