@@ -192,12 +192,12 @@ jobs:
               });
             }
 
-      # Using PAT for project validation
+      # Using PAT for project validation - FIXED to use proper token access
       - name: Validate project and fields
         id: validate_project
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}  # Using PAT for project access
+          github-token: ${{ secrets.PAT_TOKEN }}  # This passes the token to the script
           script: |
             const PROJECT_ID = 'PVT_kwHOAiZwz84A9bho';
             
@@ -235,11 +235,8 @@ jobs:
                 }
               `;
               
-              const projectResponse = await github.graphql(projectQuery, {
-                headers: {
-                  authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                }
-              });
+              // Note: No need to set headers here - github-script does this automatically
+              const projectResponse = await github.graphql(projectQuery);
               
               console.log("Project info:");
               console.log(`Title: ${projectResponse.node.title}`);
@@ -264,12 +261,12 @@ jobs:
               core.setOutput('project_validated', 'false');
             }
 
-      # Using PAT for adding to project
+      # Using PAT for adding to project - FIXED to use proper token access
       - name: Add to project
         if: steps.validate_project.outputs.project_validated == 'true'
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}  # Using PAT for project access
+          github-token: ${{ secrets.PAT_TOKEN }}  # This passes the token to the script
           script: |
             const PROJECT_ID = 'PVT_kwHOAiZwz84A9bho';
             
@@ -299,11 +296,8 @@ jobs:
                 }
               `;
               
-              const addResponse = await github.graphql(addToProjectMutation, {
-                headers: {
-                  authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                }
-              });
+              // Note: No need to set headers here - github-script does this automatically
+              const addResponse = await github.graphql(addToProjectMutation);
               
               const itemId = addResponse.addProjectV2ItemById.item.id;
               console.log(`Successfully added issue to project. Item ID: ${itemId}`);
@@ -331,11 +325,7 @@ jobs:
                     }
                   `;
                   
-                  await github.graphql(updateCsatMutation, {
-                    headers: {
-                      authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                    }
-                  });
+                  await github.graphql(updateCsatMutation);
                   console.log(`Updated CSAT field for item ${itemId}`);
                 } catch (e) {
                   console.log(`Error updating CSAT field: ${e.message}`);
@@ -363,11 +353,7 @@ jobs:
                       }
                     `;
                     
-                    await github.graphql(fallbackUpdateMutation, {
-                      headers: {
-                        authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                      }
-                    });
+                    await github.graphql(fallbackUpdateMutation);
                     console.log("Fallback CSAT update succeeded");
                   } catch (fallbackError) {
                     console.log(`Fallback CSAT update also failed: ${fallbackError.message}`);
@@ -396,11 +382,7 @@ jobs:
                   }
                 `;
                 
-                const statusOptionsResponse = await github.graphql(getStatusOptionsQuery, {
-                  headers: {
-                    authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                  }
-                });
+                const statusOptionsResponse = await github.graphql(getStatusOptionsQuery);
                 
                 console.log("Status field options:", JSON.stringify(statusOptionsResponse.node.field.options));
                 
@@ -429,11 +411,7 @@ jobs:
                     }
                   `;
                   
-                  await github.graphql(updateStatusMutation, {
-                    headers: {
-                      authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                    }
-                  });
+                  await github.graphql(updateStatusMutation);
                   console.log(`Set Status to "${newStatusOption.name}" for item ${itemId}`);
                 } else {
                   console.log('Could not find appropriate Status option');
@@ -466,11 +444,7 @@ jobs:
                     }
                   `;
                   
-                  const optionsResponse = await github.graphql(getOptionsQuery, {
-                    headers: {
-                      authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                    }
-                  });
+                  const optionsResponse = await github.graphql(getOptionsQuery);
                   
                   console.log("Partner field options:", JSON.stringify(optionsResponse.node.field.options));
                   
@@ -506,11 +480,7 @@ jobs:
                       }
                     `;
                     
-                    await github.graphql(updatePartnerMutation, {
-                      headers: {
-                        authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                      }
-                    });
+                    await github.graphql(updatePartnerMutation);
                     console.log(`Updated Partner field for item ${itemId}`);
                   } else {
                     console.log(`Partner option "${partnerName}" not found in project options`);
@@ -546,11 +516,7 @@ jobs:
                     }
                   `;
                   
-                  const engagementOptionsResponse = await github.graphql(getEngagementOptionsQuery, {
-                    headers: {
-                      authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                    }
-                  });
+                  const engagementOptionsResponse = await github.graphql(getEngagementOptionsQuery);
                   
                   console.log("Engagement Type field options:", JSON.stringify(engagementOptionsResponse.node.field.options));
                   
@@ -585,11 +551,7 @@ jobs:
                       }
                     `;
                     
-                    await github.graphql(updateEngagementMutation, {
-                      headers: {
-                        authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                      }
-                    });
+                    await github.graphql(updateEngagementMutation);
                     console.log(`Updated Engagement Type field for item ${itemId}`);
                   } else {
                     console.log(`Engagement Type option "${engagementType}" not found in project options`);
@@ -624,11 +586,7 @@ jobs:
                     }
                   `;
                   
-                  await github.graphql(updateDateMutation, {
-                    headers: {
-                      authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                    }
-                  });
+                  await github.graphql(updateDateMutation);
                   console.log(`Updated Date Completed field for item ${itemId}`);
                 } catch (e) {
                   console.log(`Error updating date field: ${e.message}`);
@@ -654,11 +612,7 @@ jobs:
                       }
                     `;
                     
-                    await github.graphql(fallbackDateMutation, {
-                      headers: {
-                        authorization: `token ${process.env.PAT_TOKEN}`  // FIXED: Changed to PAT_TOKEN
-                      }
-                    });
+                    await github.graphql(fallbackDateMutation);
                     console.log("Fallback date update succeeded");
                   } catch (fallbackError) {
                     console.log(`Fallback date update also failed: ${fallbackError.message}`);
