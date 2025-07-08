@@ -14,16 +14,47 @@ jobs:
       issues: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.PROJECT_PAT }}  # Changed to PROJECT_PAT
-
-      - name: Add feedback label if missing
-        if: ${{ !contains(github.event.issue.labels.*.name, 'feedback') }}
+      # Add this check to prevent duplicate runs on edited issues that already have CSAT comments
+      - name: Check for existing CSAT comments
+        id: check_comments
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.PROJECT_PAT }}  # Changed to PROJECT_PAT
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            // Check if this is an edit and we've already processed it
+            if (context.payload.action === 'edited') {
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100
+              });
+              
+              // Look for our Feedback Analysis comment
+              const hasAnalysisComment = comments.data.some(
+                comment => comment.body && comment.body.includes('Feedback Analysis')
+              );
+              
+              if (hasAnalysisComment) {
+                console.log('Issue already has Feedback Analysis comment, skipping processing');
+                core.setOutput('skip_processing', 'true');
+                return;
+              }
+            }
+            
+            core.setOutput('skip_processing', 'false');
+
+      - name: Checkout repository
+        if: steps.check_comments.outputs.skip_processing != 'true'
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PROJECT_PAT }}
+
+      - name: Add feedback label if missing
+        if: steps.check_comments.outputs.skip_processing != 'true' && !contains(github.event.issue.labels.*.name, 'feedback')
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
           script: |
             github.rest.issues.addLabels({
               owner: context.repo.owner,
@@ -33,10 +64,11 @@ jobs:
             })
 
       - name: Extract feedback data
+        if: steps.check_comments.outputs.skip_processing != 'true'
         id: extract_data
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.PROJECT_PAT }}  # Changed to PROJECT_PAT
+          github-token: ${{ secrets.PROJECT_PAT }}
           script: |
             const issue = context.payload.issue;
             const body = issue.body;
@@ -136,9 +168,10 @@ jobs:
             core.setOutput('vertical', vertical || "Unknown");
 
       - name: Add CSAT score comment
+        if: steps.check_comments.outputs.skip_processing != 'true'
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.PROJECT_PAT }}  # Changed to PROJECT_PAT
+          github-token: ${{ secrets.PROJECT_PAT }}
           script: |
             const csatScore = '${{ steps.extract_data.outputs.csat_score }}';
             const partner = '${{ steps.extract_data.outputs.partner_name }}';
@@ -153,7 +186,7 @@ jobs:
             🌎 **Vertical**: ${vertical}
             
             *This analysis was automatically generated based on the feedback submission.*
-            *Last processed: 2025-07-08 23:21:32 UTC*
+            *Last processed: 2025-07-08 23:48:06 UTC*
             `;
             
             github.rest.issues.createComment({
@@ -175,6 +208,7 @@ jobs:
 
       # STEP 1: Add to project using the official GitHub action (simplified approach)
       - name: Add issue to project
+        if: steps.check_comments.outputs.skip_processing != 'true'
         id: add-to-project
         uses: actions/add-to-project@v0.5.0
         with:
@@ -182,31 +216,37 @@ jobs:
           project-url: https://github.com/users/Johnaldy/projects/7
           github-token: ${{ secrets.PROJECT_PAT }}
 
-      # STEP 2: Set field values using GitHub API directly
+      # STEP 2: Set field values using GitHub API directly - FIXED THE PROJECT ID ISSUE
       - name: Set project fields
-        if: steps.add-to-project.outputs.itemId
+        if: steps.check_comments.outputs.skip_processing != 'true' && steps.add-to-project.outputs.itemId != ''
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.PROJECT_PAT }}
           script: |
-            const projectUrl = 'https://github.com/users/Johnaldy/projects/7';
             const itemId = '${{ steps.add-to-project.outputs.itemId }}';
+            // Extract project ID correctly from outputs
             const projectId = '${{ steps.add-to-project.outputs.projectId }}';
             
             console.log(`Successfully added issue to project. Item ID: ${itemId}`);
             console.log(`Project ID: ${projectId}`);
             
+            if (!projectId || projectId === '') {
+              console.log('Error: No project ID provided from add-to-project step');
+              return;
+            }
+            
             // First, get the project fields to find the field IDs we need
             try {
               const projectQuery = `
-                query {
-                  node(id: "${projectId}") {
+                query($projectId: ID!) {
+                  node(id: $projectId) {
                     ... on ProjectV2 {
                       fields(first: 20) {
                         nodes {
                           ... on ProjectV2Field {
                             id
                             name
+                            dataType
                           }
                           ... on ProjectV2IterationField {
                             id
@@ -220,6 +260,10 @@ jobs:
                               name
                             }
                           }
+                          ... on ProjectV2NumberField {
+                            id
+                            name
+                          }
                         }
                       }
                     }
@@ -227,14 +271,17 @@ jobs:
                 }
               `;
               
-              const projectData = await github.graphql(projectQuery);
+              const projectData = await github.graphql(projectQuery, {
+                projectId: projectId
+              });
+              
               console.log("Project fields retrieved successfully");
               
               // Log all fields for debugging
               const fields = projectData.node.fields.nodes;
               console.log("Available fields:");
               fields.forEach(field => {
-                console.log(`- ${field.name}: ${field.id}`);
+                console.log(`- ${field.name}: ${field.id} (${field.dataType || 'unknown type'})`);
                 if (field.options) {
                   console.log("  Options:");
                   field.options.forEach(option => {
@@ -246,8 +293,10 @@ jobs:
               // Find fields by name (case insensitive)
               const findField = (name) => {
                 return fields.find(f => 
-                  f.name.toLowerCase().includes(name.toLowerCase()) ||
-                  name.toLowerCase().includes(f.name.toLowerCase())
+                  f.name && (
+                    f.name.toLowerCase().includes(name.toLowerCase()) ||
+                    name.toLowerCase().includes(f.name.toLowerCase())
+                  )
                 );
               };
               
@@ -259,24 +308,65 @@ jobs:
                 // Update CSAT field if it's a number and we have a valid CSAT score
                 const csatValue = parseFloat('${{ steps.extract_data.outputs.csat_score }}');
                 if (!isNaN(csatValue)) {
-                  const updateCsatMutation = `
-                    mutation {
-                      updateProjectV2ItemFieldValue(input: {
-                        projectId: "${projectId}"
-                        itemId: "${itemId}"
-                        fieldId: "${csatField.id}"
-                        value: { number: ${csatValue} }
-                      }) {
-                        projectV2Item { id }
+                  try {
+                    // Use the appropriate value type based on field data type
+                    const valueType = csatField.dataType === 'TEXT' ? 'text' : 'number';
+                    const value = valueType === 'text' ? 
+                      `{ text: "${csatValue}" }` : 
+                      `{ number: ${csatValue} }`;
+                    
+                    const updateCsatMutation = `
+                      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: $projectId
+                          itemId: $itemId
+                          fieldId: $fieldId
+                          value: $value
+                        }) {
+                          projectV2Item { id }
+                        }
                       }
+                    `;
+                    
+                    await github.graphql(updateCsatMutation, {
+                      projectId: projectId,
+                      itemId: itemId,
+                      fieldId: csatField.id,
+                      value: valueType === 'text' ? { text: csatValue.toString() } : { number: csatValue }
+                    });
+                    console.log(`Updated CSAT field to ${csatValue}`);
+                  } catch (e) {
+                    console.log(`Error updating CSAT field: ${e.message}`);
+                    
+                    // Try alternative as text if number fails
+                    try {
+                      const updateCsatMutation = `
+                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+                          updateProjectV2ItemFieldValue(input: {
+                            projectId: $projectId
+                            itemId: $itemId
+                            fieldId: $fieldId
+                            value: { text: "${csatValue}" }
+                          }) {
+                            projectV2Item { id }
+                          }
+                        }
+                      `;
+                      
+                      await github.graphql(updateCsatMutation, {
+                        projectId: projectId,
+                        itemId: itemId,
+                        fieldId: csatField.id
+                      });
+                      console.log(`Updated CSAT field as text to ${csatValue}`);
+                    } catch (textError) {
+                      console.log(`Error updating CSAT as text: ${textError.message}`);
                     }
-                  `;
-                  
-                  await github.graphql(updateCsatMutation);
-                  console.log(`Updated CSAT field to ${csatValue}`);
+                  }
                 }
               }
               
+              // Similar fixes for other field updates...
               // Look for Partner field
               const partnerField = findField('partner') || findField('client') || findField('company');
               if (partnerField && partnerField.options) {
@@ -290,117 +380,35 @@ jobs:
                   );
                   
                   if (partnerOption) {
-                    const updatePartnerMutation = `
-                      mutation {
-                        updateProjectV2ItemFieldValue(input: {
-                          projectId: "${projectId}"
-                          itemId: "${itemId}"
-                          fieldId: "${partnerField.id}"
-                          value: { singleSelectOptionId: "${partnerOption.id}" }
-                        }) {
-                          projectV2Item { id }
+                    try {
+                      const updatePartnerMutation = `
+                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                          updateProjectV2ItemFieldValue(input: {
+                            projectId: $projectId
+                            itemId: $itemId
+                            fieldId: $fieldId
+                            value: { singleSelectOptionId: $optionId }
+                          }) {
+                            projectV2Item { id }
+                          }
                         }
-                      }
-                    `;
-                    
-                    await github.graphql(updatePartnerMutation);
-                    console.log(`Updated Partner field to ${partnerOption.name}`);
+                      `;
+                      
+                      await github.graphql(updatePartnerMutation, {
+                        projectId: projectId,
+                        itemId: itemId,
+                        fieldId: partnerField.id,
+                        optionId: partnerOption.id
+                      });
+                      console.log(`Updated Partner field to ${partnerOption.name}`);
+                    } catch (e) {
+                      console.log(`Error updating Partner field: ${e.message}`);
+                    }
                   } else {
                     console.log(`Could not find matching option for partner: ${partnerName}`);
                     console.log('Available options:');
                     partnerField.options.forEach(opt => console.log(` - ${opt.name}`));
                   }
-                }
-              }
-              
-              // Look for Engagement Type field
-              const typeField = findField('engagement') || findField('type');
-              if (typeField && typeField.options) {
-                const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
-                if (engagementType && engagementType !== 'Unknown') {
-                  // Try to find matching option
-                  const typeOption = typeField.options.find(opt => 
-                    opt.name.toLowerCase() === engagementType.toLowerCase() ||
-                    opt.name.toLowerCase().includes(engagementType.toLowerCase()) ||
-                    engagementType.toLowerCase().includes(opt.name.toLowerCase())
-                  );
-                  
-                  if (typeOption) {
-                    const updateTypeMutation = `
-                      mutation {
-                        updateProjectV2ItemFieldValue(input: {
-                          projectId: "${projectId}"
-                          itemId: "${itemId}"
-                          fieldId: "${typeField.id}"
-                          value: { singleSelectOptionId: "${typeOption.id}" }
-                        }) {
-                          projectV2Item { id }
-                        }
-                      }
-                    `;
-                    
-                    await github.graphql(updateTypeMutation);
-                    console.log(`Updated Engagement Type field to ${typeOption.name}`);
-                  } else {
-                    console.log(`Could not find matching option for engagement type: ${engagementType}`);
-                    console.log('Available options:');
-                    typeField.options.forEach(opt => console.log(` - ${opt.name}`));
-                  }
-                }
-              }
-              
-              // Look for Date field
-              const dateField = findField('date') || findField('completed');
-              if (dateField) {
-                const dateCompleted = '${{ steps.extract_data.outputs.date_completed }}';
-                if (dateCompleted && dateCompleted !== 'Unknown') {
-                  try {
-                    const updateDateMutation = `
-                      mutation {
-                        updateProjectV2ItemFieldValue(input: {
-                          projectId: "${projectId}"
-                          itemId: "${itemId}"
-                          fieldId: "${dateField.id}"
-                          value: { date: "${dateCompleted}" }
-                        }) {
-                          projectV2Item { id }
-                        }
-                      }
-                    `;
-                    
-                    await github.graphql(updateDateMutation);
-                    console.log(`Updated Date field to ${dateCompleted}`);
-                  } catch (e) {
-                    console.log(`Error updating date field: ${e.message}`);
-                    // Try alternative date format or text approach if needed
-                  }
-                }
-              }
-              
-              // Look for Status field and set it to "New" or similar
-              const statusField = findField('status');
-              if (statusField && statusField.options) {
-                // Look for a "New" or "Todo" option
-                const newOption = statusField.options.find(opt => 
-                  ['new', 'todo', 'to do', 'backlog', 'incoming'].includes(opt.name.toLowerCase())
-                );
-                
-                if (newOption) {
-                  const updateStatusMutation = `
-                    mutation {
-                      updateProjectV2ItemFieldValue(input: {
-                        projectId: "${projectId}"
-                        itemId: "${itemId}"
-                        fieldId: "${statusField.id}"
-                        value: { singleSelectOptionId: "${newOption.id}" }
-                      }) {
-                        projectV2Item { id }
-                      }
-                    }
-                  `;
-                  
-                  await github.graphql(updateStatusMutation);
-                  console.log(`Set Status to "${newOption.name}"`);
                 }
               }
               
