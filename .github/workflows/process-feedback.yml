@@ -1,0 +1,70 @@
+name: Process Partner Feedback
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  process-feedback:
+    if: contains(github.event.issue.labels.*.name, 'feedback')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Calculate CSAT and Process Feedback
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body;
+            
+            // Parse issue body to extract form values
+            const satisfaction = parseFloat(body.match(/AVG Overall Customer Satisfaction:\s*(\d+\.\d+)/)?.[1] || "0");
+            const quality = parseFloat(body.match(/AVG Quality of Work\/Material:\s*(\d+\.\d+)/)?.[1] || "0");
+            const communication = parseFloat(body.match(/AVG Effectiveness of Communication:\s*(\d+\.\d+)/)?.[1] || "0");
+            const impact = parseFloat(body.match(/AVG Impact\/Value of Service:\s*(\d+\.\d+)/)?.[1] || "0");
+            
+            // Calculate CSAT Score (average of the 4 metrics)
+            const csatScore = ((satisfaction + quality + communication + impact) / 4).toFixed(2);
+            
+            // Create a comment with the calculated CSAT score
+            const comment = `## Calculated CSAT Score: ${csatScore}/5.0
+            
+            **Breakdown:**
+            - Overall Satisfaction: ${satisfaction}/5.0
+            - Quality of Work: ${quality}/5.0
+            - Communication: ${communication}/5.0
+            - Impact/Value: ${impact}/5.0
+            
+            *This score was automatically calculated at ${new Date().toISOString()} by the feedback processing system.*`;
+            
+            await github.rest.issues.createComment({
+              issue_number: issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+            // Add appropriate labels based on CSAT score
+            let csatLabel = "";
+            if (csatScore >= 4.5) csatLabel = "csat-excellent";
+            else if (csatScore >= 4.0) csatLabel = "csat-good";
+            else if (csatScore >= 3.0) csatLabel = "csat-average";
+            else csatLabel = "csat-needs-attention";
+            
+            await github.rest.issues.addLabels({
+              issue_number: issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: [csatLabel]
+            });
