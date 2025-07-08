@@ -28,14 +28,14 @@ jobs:
             const engagements = [
               {
                 id: "ENG-2025-001",
-                partner: "Accenture",
+                partner: "Infomagnus",
                 customerName: "ACME Corp",
                 customerEmail: "contact@example.com",
                 dateCompleted: "2025-07-01"
               },
               {
                 id: "ENG-2025-002",
-                partner: "Deloitte",
+                partner: "Xpirit/Xebia",
                 customerName: "Global Industries",
                 customerEmail: "feedback@example.com",
                 dateCompleted: "2025-07-05"
@@ -61,14 +61,14 @@ jobs:
             
             Please take a moment to fill out our feedback form at the following link:
             
-            https://github.com/github/services/issues/new?template=partner-feedback.yml
+            https://github.com/johnaldy/partner_feedback/issues/new?template=partner-feedback.yml
             
             Your insights are valuable and help us improve our partner delivery services.
             
             Thank you,
             GitHub Corps Team
           to: ${{ fromJSON(steps.find-engagements.outputs.result).engagements[0].customerEmail }}
-          from: GitHub Corps Team <noreply@github.com>
+          from: GitHub Corps Team <${{ secrets.MAIL_USERNAME }}>
           
       - name: Log reminder activity
         run: |
