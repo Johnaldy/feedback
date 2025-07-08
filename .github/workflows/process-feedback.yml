@@ -12,9 +12,9 @@ jobs:
     permissions:
       contents: read
       issues: write
-      # Make sure these permissions are explicitly set
+      pull-requests: write
+      # This permission is required for updating project fields
       repository-projects: write
-      project: write
 
     steps:
       - name: Checkout repository
@@ -173,7 +173,7 @@ jobs:
             🌎 **Vertical**: ${vertical}
             
             *This analysis was automatically generated based on the feedback submission.*
-            *Last processed: ${new Date().toISOString().split('T')[0]} UTC*
+            *Last processed: 2025-07-08 UTC*
             `;
             
             github.rest.issues.createComment({
@@ -250,7 +250,7 @@ jobs:
               console.log("Available fields:");
               projectResponse.node.fields.nodes.forEach(field => {
                 console.log(`- ${field.name}: ${field.id}`);
-                if (field.__typename === 'ProjectV2SingleSelectField' && field.options) {
+                if (field.options) {
                   console.log("  Options:");
                   field.options.forEach(option => {
                     console.log(`  - ${option.name}: ${option.id}`);
