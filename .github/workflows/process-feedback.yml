@@ -278,7 +278,7 @@ jobs:
             const PARTNER_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpog';
             const ENGAGEMENT_TYPE_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIqJk';
             const DATE_COMPLETED_FIELD_ID = 'PVTF_lAHOAiZwz84A9bhozgxIqNI';
-            const STATUS_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpVQ';
+            const STATUS_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIooc';
             
             try {
               console.log('Starting project integration...');
