@@ -1,0 +1,76 @@
+name: Feedback Collection Reminder
+
+on:
+  schedule:
+    # Run every Monday at 9:00 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  send-reminder:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Find recently closed engagements
+        id: find-engagements
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // In a real implementation, this would query from a database or other source
+            // to find engagements that were recently completed but don't have feedback yet
+            
+            // For this demo, we'll just set a dummy list
+            const engagements = [
+              {
+                id: "ENG-2025-001",
+                partner: "Accenture",
+                customerName: "ACME Corp",
+                customerEmail: "contact@example.com",
+                dateCompleted: "2025-07-01"
+              },
+              {
+                id: "ENG-2025-002",
+                partner: "Deloitte",
+                customerName: "Global Industries",
+                customerEmail: "feedback@example.com",
+                dateCompleted: "2025-07-05"
+              }
+            ];
+            
+            return {
+              engagements: engagements
+            };
+      
+      - name: Send email reminders
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: Feedback Request for GitHub Partner Engagement
+          body: |
+            Hello,
+            
+            We recently completed a GitHub engagement with your team. We would greatly appreciate your feedback on the service provided.
+            
+            Please take a moment to fill out our feedback form at the following link:
+            
+            https://github.com/github/services/issues/new?template=partner-feedback.yml
+            
+            Your insights are valuable and help us improve our partner delivery services.
+            
+            Thank you,
+            GitHub Corps Team
+          to: ${{ fromJSON(steps.find-engagements.outputs.result).engagements[0].customerEmail }}
+          from: GitHub Corps Team <noreply@github.com>
+          
+      - name: Log reminder activity
+        run: |
+          echo "Sent feedback reminders to the following engagements:"
+          echo "${{ toJSON(fromJSON(steps.find-engagements.outputs.result).engagements) }}"
