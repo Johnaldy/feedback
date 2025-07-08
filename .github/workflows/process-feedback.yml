@@ -12,9 +12,9 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: write
-      # This permission is required for updating project fields
+      # Make sure these permissions are explicitly set
       repository-projects: write
+      project: write
 
     steps:
       - name: Checkout repository
@@ -193,20 +193,98 @@ jobs:
               });
             }
 
-      - name: Add to project
+      # Get project info to validate the project and fields exist
+      - name: Validate project and fields
+        id: validate_project
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const PROJECT_ID = 'PVT_kwHOAiZwz84A9bho';
+            
+            try {
+              // First, verify the project exists and we have access
+              const projectQuery = `
+                query {
+                  node(id: "${PROJECT_ID}") {
+                    ... on ProjectV2 {
+                      id
+                      title
+                      url
+                      fields(first: 20) {
+                        nodes {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                          ... on ProjectV2IterationField {
+                            id
+                            name
+                          }
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                            options {
+                              id
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              
+              const projectResponse = await github.graphql(projectQuery, {
+                headers: {
+                  authorization: `token ${process.env.GITHUB_TOKEN}`
+                }
+              });
+              
+              console.log("Project info:");
+              console.log(`Title: ${projectResponse.node.title}`);
+              console.log(`URL: ${projectResponse.node.url}`);
+              
+              // Log all fields
+              console.log("Available fields:");
+              projectResponse.node.fields.nodes.forEach(field => {
+                console.log(`- ${field.name}: ${field.id}`);
+                if (field.__typename === 'ProjectV2SingleSelectField' && field.options) {
+                  console.log("  Options:");
+                  field.options.forEach(option => {
+                    console.log(`  - ${option.name}: ${option.id}`);
+                  });
+                }
+              });
+              
+              core.setOutput('project_validated', 'true');
+            } catch (error) {
+              console.log(`Error validating project: ${error.message}`);
+              console.log(error.stack);
+              core.setOutput('project_validated', 'false');
+            }
+
+      - name: Add to project
+        if: steps.validate_project.outputs.project_validated == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const PROJECT_ID = 'PVT_kwHOAiZwz84A9bho';
+            
+            // These IDs may need to be verified/updated based on the validate_project step output
             const CSAT_FIELD_ID = 'PVTF_lAHOAiZwz84A9bhozgxIpgg';
             const PARTNER_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpog';
             const ENGAGEMENT_TYPE_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIqJk';
             const DATE_COMPLETED_FIELD_ID = 'PVTF_lAHOAiZwz84A9bhozgxIqNI';
-            const STATUS_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpVQ'; // Status field ID
+            const STATUS_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpVQ';
             
             try {
               console.log('Starting project integration...');
+              console.log(`Using Project ID: ${PROJECT_ID}`);
+              console.log(`Issue Node ID: ${context.payload.issue.node_id}`);
+              
               // Add the issue to the project
               const addToProjectMutation = `
                 mutation {
@@ -233,6 +311,9 @@ jobs:
               // Update the CSAT field
               if ('${{ steps.extract_data.outputs.csat_score }}' !== 'N/A') {
                 try {
+                  const csatValue = parseFloat('${{ steps.extract_data.outputs.csat_score }}') || 0;
+                  console.log(`Setting CSAT field (${CSAT_FIELD_ID}) to: ${csatValue}`);
+                  
                   const updateCsatMutation = `
                     mutation {
                       updateProjectV2ItemFieldValue(input: {
@@ -240,7 +321,7 @@ jobs:
                         itemId: "${itemId}"
                         fieldId: "${CSAT_FIELD_ID}"
                         value: {
-                          number: ${parseFloat('${{ steps.extract_data.outputs.csat_score }}') || 0}
+                          number: ${csatValue}
                         }
                       }) {
                         projectV2Item {
@@ -258,12 +339,46 @@ jobs:
                   console.log(`Updated CSAT field for item ${itemId}`);
                 } catch (e) {
                   console.log(`Error updating CSAT field: ${e.message}`);
+                  console.log(e.stack);
+                  
+                  // Try a fallback approach for number fields
+                  try {
+                    console.log("Trying fallback approach for CSAT field");
+                    const csatValue = parseFloat('${{ steps.extract_data.outputs.csat_score }}') || 0;
+                    
+                    const fallbackUpdateMutation = `
+                      mutation {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: "${PROJECT_ID}"
+                          itemId: "${itemId}"
+                          fieldId: "${CSAT_FIELD_ID}"
+                          value: {
+                            text: "${csatValue}"
+                          }
+                        }) {
+                          projectV2Item {
+                            id
+                          }
+                        }
+                      }
+                    `;
+                    
+                    await github.graphql(fallbackUpdateMutation, {
+                      headers: {
+                        authorization: `token ${process.env.GITHUB_TOKEN}`
+                      }
+                    });
+                    console.log("Fallback CSAT update succeeded");
+                  } catch (fallbackError) {
+                    console.log(`Fallback CSAT update also failed: ${fallbackError.message}`);
+                  }
                 }
               }
               
               // Set Status to "New"
               try {
                 // First get the options for the Status field
+                console.log(`Getting options for Status field (${STATUS_FIELD_ID})`);
                 const getStatusOptionsQuery = `
                   query {
                     node(id: "${PROJECT_ID}") {
@@ -287,6 +402,8 @@ jobs:
                   }
                 });
                 
+                console.log("Status field options:", JSON.stringify(statusOptionsResponse.node.field.options));
+                
                 const statusOptions = statusOptionsResponse.node.field.options;
                 // Look for "New" or similar status option
                 const newStatusOption = statusOptions.find(option => 
@@ -294,6 +411,7 @@ jobs:
                 );
                 
                 if (newStatusOption) {
+                  console.log(`Found status option: ${newStatusOption.name} (${newStatusOption.id})`);
                   const updateStatusMutation = `
                     mutation {
                       updateProjectV2ItemFieldValue(input: {
@@ -322,11 +440,14 @@ jobs:
                 }
               } catch (e) {
                 console.log(`Error updating Status field: ${e.message}`);
+                console.log(e.stack);
               }
               
               // Add Partner field - assuming it's a single select field
-              if ('${{ steps.extract_data.outputs.partner_name }}' !== 'Unknown') {
+              const partnerName = '${{ steps.extract_data.outputs.partner_name }}';
+              if (partnerName !== 'Unknown') {
                 try {
+                  console.log(`Setting Partner field to: "${partnerName}"`);
                   // First, we need to get the option ID for the partner name
                   const getOptionsQuery = `
                     query {
@@ -351,20 +472,23 @@ jobs:
                     }
                   });
                   
+                  console.log("Partner field options:", JSON.stringify(optionsResponse.node.field.options));
+                  
                   const options = optionsResponse.node.field.options;
-                  const partnerName = '${{ steps.extract_data.outputs.partner_name }}';
                   
                   // Try to find an exact match first
                   let partnerOption = options.find(option => option.name === partnerName);
                   
                   // If no exact match, try case-insensitive match
-                  if (!partnerOption && partnerName !== 'Unknown') {
+                  if (!partnerOption) {
                     partnerOption = options.find(option => 
                       option.name.toLowerCase() === partnerName.toLowerCase()
                     );
                   }
                   
+                  // If we found a matching option, update the field
                   if (partnerOption) {
+                    console.log(`Found partner option: ${partnerOption.name} (${partnerOption.id})`);
                     const updatePartnerMutation = `
                       mutation {
                         updateProjectV2ItemFieldValue(input: {
@@ -395,12 +519,15 @@ jobs:
                   }
                 } catch (e) {
                   console.log(`Error updating partner field: ${e.message}`);
+                  console.log(e.stack);
                 }
               }
               
               // Update Engagement Type field
-              if ('${{ steps.extract_data.outputs.engagement_type }}' !== 'Unknown') {
+              const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
+              if (engagementType !== 'Unknown') {
                 try {
+                  console.log(`Setting Engagement Type field to: "${engagementType}"`);
                   // Get options for Engagement Type
                   const getEngagementOptionsQuery = `
                     query {
@@ -425,20 +552,22 @@ jobs:
                     }
                   });
                   
+                  console.log("Engagement Type field options:", JSON.stringify(engagementOptionsResponse.node.field.options));
+                  
                   const engagementOptions = engagementOptionsResponse.node.field.options;
-                  const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
                   
                   // Try to find an exact match first
                   let engagementOption = engagementOptions.find(option => option.name === engagementType);
                   
                   // If no exact match, try case-insensitive match
-                  if (!engagementOption && engagementType !== 'Unknown') {
+                  if (!engagementOption) {
                     engagementOption = engagementOptions.find(option => 
                       option.name.toLowerCase() === engagementType.toLowerCase()
                     );
                   }
                   
                   if (engagementOption) {
+                    console.log(`Found engagement option: ${engagementOption.name} (${engagementOption.id})`);
                     const updateEngagementMutation = `
                       mutation {
                         updateProjectV2ItemFieldValue(input: {
@@ -469,13 +598,15 @@ jobs:
                   }
                 } catch (e) {
                   console.log(`Error updating engagement type field: ${e.message}`);
+                  console.log(e.stack);
                 }
               }
               
               // Update Date Completed field
-              if ('${{ steps.extract_data.outputs.date_completed }}' !== 'Unknown') {
+              const dateCompleted = '${{ steps.extract_data.outputs.date_completed }}';
+              if (dateCompleted !== 'Unknown') {
                 try {
-                  const dateCompleted = '${{ steps.extract_data.outputs.date_completed }}';
+                  console.log(`Setting Date Completed field to: "${dateCompleted}"`);
                   const updateDateMutation = `
                     mutation {
                       updateProjectV2ItemFieldValue(input: {
@@ -501,6 +632,37 @@ jobs:
                   console.log(`Updated Date Completed field for item ${itemId}`);
                 } catch (e) {
                   console.log(`Error updating date field: ${e.message}`);
+                  console.log(e.stack);
+                  
+                  // Try a fallback approach for date fields
+                  try {
+                    console.log("Trying fallback approach for date field");
+                    const fallbackDateMutation = `
+                      mutation {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: "${PROJECT_ID}"
+                          itemId: "${itemId}"
+                          fieldId: "${DATE_COMPLETED_FIELD_ID}"
+                          value: {
+                            text: "${dateCompleted}"
+                          }
+                        }) {
+                          projectV2Item {
+                            id
+                          }
+                        }
+                      }
+                    `;
+                    
+                    await github.graphql(fallbackDateMutation, {
+                      headers: {
+                        authorization: `token ${process.env.GITHUB_TOKEN}`
+                      }
+                    });
+                    console.log("Fallback date update succeeded");
+                  } catch (fallbackError) {
+                    console.log(`Fallback date update also failed: ${fallbackError.message}`);
+                  }
                 }
               }
               
