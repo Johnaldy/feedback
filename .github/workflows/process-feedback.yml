@@ -44,64 +44,116 @@ jobs:
             const issue = context.payload.issue;
             const body = issue.body;
             
-            // Extract ratings from the issue body
-            const overallSatisfactionMatch = body.match(/AVG Overall Customer Satisfaction.*?(\d+\.?\d*)/);
-            const qualityOfWorkMatch = body.match(/AVG Quality of Work\/Material.*?(\d+\.?\d*)/);
-            const communicationMatch = body.match(/AVG Effectiveness of Communication.*?(\d+\.?\d*)/);
-            const impactValueMatch = body.match(/AVG Impact\/Value of Service.*?(\d+\.?\d*)/);
+            // Debug: Log raw issue body to understand its structure
+            console.log('Raw issue body:');
+            console.log('-----------------');
+            console.log(body);
+            console.log('-----------------');
             
-            // Extract partner name
-            const partnerMatch = body.match(/Partner Name.*?\n.*?- (.*?)($|\n)/);
+            // Helper function to extract form fields with various formats
+            function extractValue(fieldName, isNumber = false) {
+              // Try multiple patterns to match various form formats
+              const patterns = [
+                // Form checkbox/dropdown selection format
+                new RegExp(`${fieldName}.*?\\n.*?- (.*?)($|\\n)`, 's'),
+                // Form input format
+                new RegExp(`${fieldName}.*?\\n\\s*(.*?)($|\\n)`, 's'),
+                // Key-value format
+                new RegExp(`${fieldName}.*?: *(.*?)($|\\n)`, 's'),
+                // GitHub form format with ###
+                new RegExp(`### ${fieldName}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's'),
+                // Direct match for numbers
+                isNumber ? new RegExp(`${fieldName}[\\s\\S]*?(\\d+\\.?\\d*)`) : null
+              ].filter(Boolean);
+              
+              for (const pattern of patterns) {
+                const match = body.match(pattern);
+                if (match && match[1]) {
+                  const value = match[1].trim();
+                  if (value && (!isNumber || !isNaN(parseFloat(value)))) {
+                    return value;
+                  }
+                }
+              }
+              
+              // Try extracting by form field ID
+              const fieldIdMap = {
+                'AVG Overall Customer Satisfaction': 'overall_satisfaction',
+                'AVG Quality of Work/Material': 'quality_of_work',
+                'AVG Effectiveness of Communication': 'communication',
+                'AVG Impact/Value of Service': 'impact_value',
+                'Partner Name': 'partner_name',
+                'Engagement Type': 'engagement_type',
+                'Date Completed': 'date_completed',
+                'Vertical': 'vertical'
+              };
+              
+              const fieldId = fieldIdMap[fieldName];
+              if (fieldId) {
+                const idPattern = new RegExp(`### ${fieldId}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's');
+                const match = body.match(idPattern);
+                if (match && match[1]) {
+                  const value = match[1].trim();
+                  if (value && (!isNumber || !isNaN(parseFloat(value)))) {
+                    return value;
+                  }
+                }
+              }
+              
+              return null;
+            }
             
-            // Extract engagement type
-            const engagementTypeMatch = body.match(/Engagement Type.*?\n.*?- (.*?)($|\n)/);
+            // Extract ratings using the helper function
+            const overallSatisfaction = extractValue('AVG Overall Customer Satisfaction', true);
+            const qualityOfWork = extractValue('AVG Quality of Work/Material', true);
+            const communication = extractValue('AVG Effectiveness of Communication', true);
+            const impactValue = extractValue('AVG Impact/Value of Service', true);
             
-            // Extract date completed
-            const dateCompletedMatch = body.match(/Date Completed.*?(\d{4}-\d{2}-\d{2})/);
+            // Extract other fields
+            const partnerName = extractValue('Partner Name');
+            const engagementType = extractValue('Engagement Type');
+            const dateCompleted = extractValue('Date Completed');
+            const vertical = extractValue('Vertical');
             
-            // Extract vertical
-            const verticalMatch = body.match(/Vertical.*?\n.*?- (.*?)($|\n)/);
+            // Log extracted values for debugging
+            console.log('Extracted values:');
+            console.log(`Overall Satisfaction: ${overallSatisfaction}`);
+            console.log(`Quality of Work: ${qualityOfWork}`);
+            console.log(`Communication: ${communication}`);
+            console.log(`Impact/Value: ${impactValue}`);
+            console.log(`Partner Name: ${partnerName}`);
+            console.log(`Engagement Type: ${engagementType}`);
+            console.log(`Date Completed: ${dateCompleted}`);
+            console.log(`Vertical: ${vertical}`);
             
-            // Calculate CSAT score - average of the 4 ratings
+            // Calculate CSAT score
             let csatScore = 0;
             let validRatings = 0;
             
-            if (overallSatisfactionMatch && overallSatisfactionMatch[1]) {
-              csatScore += parseFloat(overallSatisfactionMatch[1]);
-              validRatings += 1;
-            }
+            const addRating = (rating) => {
+              if (rating) {
+                const value = parseFloat(rating);
+                if (!isNaN(value)) {
+                  csatScore += value;
+                  validRatings += 1;
+                }
+              }
+            };
             
-            if (qualityOfWorkMatch && qualityOfWorkMatch[1]) {
-              csatScore += parseFloat(qualityOfWorkMatch[1]);
-              validRatings += 1;
-            }
-            
-            if (communicationMatch && communicationMatch[1]) {
-              csatScore += parseFloat(communicationMatch[1]);
-              validRatings += 1;
-            }
-            
-            if (impactValueMatch && impactValueMatch[1]) {
-              csatScore += parseFloat(impactValueMatch[1]);
-              validRatings += 1;
-            }
+            addRating(overallSatisfaction);
+            addRating(qualityOfWork);
+            addRating(communication);
+            addRating(impactValue);
             
             const finalCsatScore = validRatings > 0 ? (csatScore / validRatings).toFixed(2) : "N/A";
+            console.log(`Final CSAT Score: ${finalCsatScore} (from ${validRatings} valid ratings)`);
             
             // Set outputs
             core.setOutput('csat_score', finalCsatScore);
-            core.setOutput('partner_name', partnerMatch ? partnerMatch[1] : "Unknown");
-            core.setOutput('engagement_type', engagementTypeMatch ? engagementTypeMatch[1] : "Unknown");
-            core.setOutput('date_completed', dateCompletedMatch ? dateCompletedMatch[1] : "Unknown");
-            core.setOutput('vertical', verticalMatch ? verticalMatch[1] : "Unknown");
-            
-            // Log extracted data for debugging
-            console.log('Extracted data:');
-            console.log(`CSAT Score: ${finalCsatScore}`);
-            console.log(`Partner Name: ${partnerMatch ? partnerMatch[1] : "Unknown"}`);
-            console.log(`Engagement Type: ${engagementTypeMatch ? engagementTypeMatch[1] : "Unknown"}`);
-            console.log(`Date Completed: ${dateCompletedMatch ? dateCompletedMatch[1] : "Unknown"}`);
-            console.log(`Vertical: ${verticalMatch ? verticalMatch[1] : "Unknown"}`);
+            core.setOutput('partner_name', partnerName || "Unknown");
+            core.setOutput('engagement_type', engagementType || "Unknown");
+            core.setOutput('date_completed', dateCompleted || "Unknown");
+            core.setOutput('vertical', vertical || "Unknown");
 
       - name: Add CSAT score comment
         uses: actions/github-script@v6
@@ -301,7 +353,16 @@ jobs:
                   
                   const options = optionsResponse.node.field.options;
                   const partnerName = '${{ steps.extract_data.outputs.partner_name }}';
-                  const partnerOption = options.find(option => option.name === partnerName);
+                  
+                  // Try to find an exact match first
+                  let partnerOption = options.find(option => option.name === partnerName);
+                  
+                  // If no exact match, try case-insensitive match
+                  if (!partnerOption && partnerName !== 'Unknown') {
+                    partnerOption = options.find(option => 
+                      option.name.toLowerCase() === partnerName.toLowerCase()
+                    );
+                  }
                   
                   if (partnerOption) {
                     const updatePartnerMutation = `
@@ -329,6 +390,8 @@ jobs:
                     console.log(`Updated Partner field for item ${itemId}`);
                   } else {
                     console.log(`Partner option "${partnerName}" not found in project options`);
+                    console.log('Available partner options:');
+                    options.forEach(opt => console.log(` - ${opt.name}`));
                   }
                 } catch (e) {
                   console.log(`Error updating partner field: ${e.message}`);
@@ -364,7 +427,16 @@ jobs:
                   
                   const engagementOptions = engagementOptionsResponse.node.field.options;
                   const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
-                  const engagementOption = engagementOptions.find(option => option.name === engagementType);
+                  
+                  // Try to find an exact match first
+                  let engagementOption = engagementOptions.find(option => option.name === engagementType);
+                  
+                  // If no exact match, try case-insensitive match
+                  if (!engagementOption && engagementType !== 'Unknown') {
+                    engagementOption = engagementOptions.find(option => 
+                      option.name.toLowerCase() === engagementType.toLowerCase()
+                    );
+                  }
                   
                   if (engagementOption) {
                     const updateEngagementMutation = `
@@ -392,6 +464,8 @@ jobs:
                     console.log(`Updated Engagement Type field for item ${itemId}`);
                   } else {
                     console.log(`Engagement Type option "${engagementType}" not found in project options`);
+                    console.log('Available engagement type options:');
+                    engagementOptions.forEach(opt => console.log(` - ${opt.name}`));
                   }
                 } catch (e) {
                   console.log(`Error updating engagement type field: ${e.message}`);
@@ -432,4 +506,5 @@ jobs:
               
             } catch (error) {
               console.log(`Error in project integration: ${error.message}`);
+              console.log(error.stack);
             }
