@@ -6,66 +6,430 @@ on:
 
 jobs:
   process-feedback:
-    if: contains(github.event.issue.labels.*.name, 'feedback')
+    # Only run on issues with the feedback label or title containing [Feedback]
+    if: contains(github.event.issue.title, '[Feedback]') || contains(github.event.issue.labels.*.name, 'feedback')
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
-    
+      pull-requests: write
+      # This permission is required for updating project fields
+      repository-projects: write
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Calculate CSAT and Process Feedback
-        uses: actions/github-script@v7
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add feedback label if missing
+        if: ${{ !contains(github.event.issue.labels.*.name, 'feedback') }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['feedback']
+            })
+
+      - name: Extract feedback data
+        id: extract_data
+        uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const issue = context.payload.issue;
             const body = issue.body;
             
-            // Extract values from the form input
-            const extractValue = (field) => {
-              const regex = new RegExp(`### ${field}\\s*([\\d\\.]+)`, 'i');
-              const match = body.match(regex);
-              return match ? parseFloat(match[1]) : 0;
-            };
+            // Extract ratings from the issue body
+            const overallSatisfactionMatch = body.match(/AVG Overall Customer Satisfaction.*?(\d+\.?\d*)/);
+            const qualityOfWorkMatch = body.match(/AVG Quality of Work\/Material.*?(\d+\.?\d*)/);
+            const communicationMatch = body.match(/AVG Effectiveness of Communication.*?(\d+\.?\d*)/);
+            const impactValueMatch = body.match(/AVG Impact\/Value of Service.*?(\d+\.?\d*)/);
             
-            const satisfaction = extractValue('AVG Overall Customer Satisfaction');
-            const quality = extractValue('AVG Quality of Work/Material');
-            const communication = extractValue('AVG Effectiveness of Communication');
-            const impact = extractValue('AVG Impact/Value of Service');
+            // Extract partner name
+            const partnerMatch = body.match(/Partner Name.*?\n.*?- (.*?)($|\n)/);
             
-            // Calculate CSAT Score (average of the 4 metrics)
-            const csatScore = ((satisfaction + quality + communication + impact) / 4).toFixed(2);
+            // Extract engagement type
+            const engagementTypeMatch = body.match(/Engagement Type.*?\n.*?- (.*?)($|\n)/);
             
-            // Create a comment with the calculated CSAT score
-            const comment = `## Calculated CSAT Score: ${csatScore}/5.0
+            // Extract date completed
+            const dateCompletedMatch = body.match(/Date Completed.*?(\d{4}-\d{2}-\d{2})/);
             
-            **Breakdown:**
-            - Overall Satisfaction: ${satisfaction}/5.0
-            - Quality of Work: ${quality}/5.0
-            - Communication: ${communication}/5.0
-            - Impact/Value: ${impact}/5.0
+            // Extract vertical
+            const verticalMatch = body.match(/Vertical.*?\n.*?- (.*?)($|\n)/);
             
-            *This score was automatically calculated at ${new Date().toISOString()} by the feedback processing system.*`;
+            // Calculate CSAT score - average of the 4 ratings
+            let csatScore = 0;
+            let validRatings = 0;
             
-            await github.rest.issues.createComment({
-              issue_number: issue.number,
+            if (overallSatisfactionMatch && overallSatisfactionMatch[1]) {
+              csatScore += parseFloat(overallSatisfactionMatch[1]);
+              validRatings += 1;
+            }
+            
+            if (qualityOfWorkMatch && qualityOfWorkMatch[1]) {
+              csatScore += parseFloat(qualityOfWorkMatch[1]);
+              validRatings += 1;
+            }
+            
+            if (communicationMatch && communicationMatch[1]) {
+              csatScore += parseFloat(communicationMatch[1]);
+              validRatings += 1;
+            }
+            
+            if (impactValueMatch && impactValueMatch[1]) {
+              csatScore += parseFloat(impactValueMatch[1]);
+              validRatings += 1;
+            }
+            
+            const finalCsatScore = validRatings > 0 ? (csatScore / validRatings).toFixed(2) : "N/A";
+            
+            // Set outputs
+            core.setOutput('csat_score', finalCsatScore);
+            core.setOutput('partner_name', partnerMatch ? partnerMatch[1] : "Unknown");
+            core.setOutput('engagement_type', engagementTypeMatch ? engagementTypeMatch[1] : "Unknown");
+            core.setOutput('date_completed', dateCompletedMatch ? dateCompletedMatch[1] : "Unknown");
+            core.setOutput('vertical', verticalMatch ? verticalMatch[1] : "Unknown");
+            
+            // Log extracted data for debugging
+            console.log('Extracted data:');
+            console.log(`CSAT Score: ${finalCsatScore}`);
+            console.log(`Partner Name: ${partnerMatch ? partnerMatch[1] : "Unknown"}`);
+            console.log(`Engagement Type: ${engagementTypeMatch ? engagementTypeMatch[1] : "Unknown"}`);
+            console.log(`Date Completed: ${dateCompletedMatch ? dateCompletedMatch[1] : "Unknown"}`);
+            console.log(`Vertical: ${verticalMatch ? verticalMatch[1] : "Unknown"}`);
+
+      - name: Add CSAT score comment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const csatScore = '${{ steps.extract_data.outputs.csat_score }}';
+            const partner = '${{ steps.extract_data.outputs.partner_name }}';
+            const vertical = '${{ steps.extract_data.outputs.vertical }}';
+            
+            const comment = `## Feedback Analysis
+            
+            📊 **CSAT Score**: ${csatScore}
+            👥 **Partner**: ${partner}
+            📅 **Date Completed**: ${{ steps.extract_data.outputs.date_completed }}
+            📝 **Engagement Type**: ${{ steps.extract_data.outputs.engagement_type }}
+            🌎 **Vertical**: ${vertical}
+            
+            *This analysis was automatically generated based on the feedback submission.*
+            *Last processed: ${new Date().toISOString().split('T')[0]} UTC*
+            `;
+            
+            github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
+              issue_number: context.issue.number,
               body: comment
             });
             
-            // Add appropriate labels based on CSAT score
-            let csatLabel = "";
-            if (csatScore >= 4.5) csatLabel = "csat-excellent";
-            else if (csatScore >= 4.0) csatLabel = "csat-good";
-            else if (csatScore >= 3.0) csatLabel = "csat-average";
-            else csatLabel = "csat-needs-attention";
+            // Update issue title to include CSAT score if not already there
+            if (!context.payload.issue.title.includes('CSAT:')) {
+              github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                title: `${context.payload.issue.title} [CSAT: ${csatScore}]`
+              });
+            }
+
+      - name: Add to project
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const PROJECT_ID = 'PVT_kwHOAiZwz84A9bho';
+            const CSAT_FIELD_ID = 'PVTF_lAHOAiZwz84A9bhozgxIpgg';
+            const PARTNER_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpog';
+            const ENGAGEMENT_TYPE_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIqJk';
+            const DATE_COMPLETED_FIELD_ID = 'PVTF_lAHOAiZwz84A9bhozgxIqNI';
+            const STATUS_FIELD_ID = 'PVTSSF_lAHOAiZwz84A9bhozgxIpVQ'; // Status field ID
             
-            await github.rest.issues.addLabels({
-              issue_number: issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: [csatLabel]
-            });
+            try {
+              console.log('Starting project integration...');
+              // Add the issue to the project
+              const addToProjectMutation = `
+                mutation {
+                  addProjectV2ItemById(input: {
+                    projectId: "${PROJECT_ID}"
+                    contentId: "${context.payload.issue.node_id}"
+                  }) {
+                    item {
+                      id
+                    }
+                  }
+                }
+              `;
+              
+              const addResponse = await github.graphql(addToProjectMutation, {
+                headers: {
+                  authorization: `token ${process.env.GITHUB_TOKEN}`
+                }
+              });
+              
+              const itemId = addResponse.addProjectV2ItemById.item.id;
+              console.log(`Successfully added issue to project. Item ID: ${itemId}`);
+              
+              // Update the CSAT field
+              if ('${{ steps.extract_data.outputs.csat_score }}' !== 'N/A') {
+                try {
+                  const updateCsatMutation = `
+                    mutation {
+                      updateProjectV2ItemFieldValue(input: {
+                        projectId: "${PROJECT_ID}"
+                        itemId: "${itemId}"
+                        fieldId: "${CSAT_FIELD_ID}"
+                        value: {
+                          number: ${parseFloat('${{ steps.extract_data.outputs.csat_score }}') || 0}
+                        }
+                      }) {
+                        projectV2Item {
+                          id
+                        }
+                      }
+                    }
+                  `;
+                  
+                  await github.graphql(updateCsatMutation, {
+                    headers: {
+                      authorization: `token ${process.env.GITHUB_TOKEN}`
+                    }
+                  });
+                  console.log(`Updated CSAT field for item ${itemId}`);
+                } catch (e) {
+                  console.log(`Error updating CSAT field: ${e.message}`);
+                }
+              }
+              
+              // Set Status to "New"
+              try {
+                // First get the options for the Status field
+                const getStatusOptionsQuery = `
+                  query {
+                    node(id: "${PROJECT_ID}") {
+                      ... on ProjectV2 {
+                        field(id: "${STATUS_FIELD_ID}") {
+                          ... on ProjectV2SingleSelectField {
+                            options {
+                              id
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+                
+                const statusOptionsResponse = await github.graphql(getStatusOptionsQuery, {
+                  headers: {
+                    authorization: `token ${process.env.GITHUB_TOKEN}`
+                  }
+                });
+                
+                const statusOptions = statusOptionsResponse.node.field.options;
+                // Look for "New" or similar status option
+                const newStatusOption = statusOptions.find(option => 
+                  option.name === "New" || option.name === "Todo" || option.name === "To Do"
+                );
+                
+                if (newStatusOption) {
+                  const updateStatusMutation = `
+                    mutation {
+                      updateProjectV2ItemFieldValue(input: {
+                        projectId: "${PROJECT_ID}"
+                        itemId: "${itemId}"
+                        fieldId: "${STATUS_FIELD_ID}"
+                        value: {
+                          singleSelectOptionId: "${newStatusOption.id}"
+                        }
+                      }) {
+                        projectV2Item {
+                          id
+                        }
+                      }
+                    }
+                  `;
+                  
+                  await github.graphql(updateStatusMutation, {
+                    headers: {
+                      authorization: `token ${process.env.GITHUB_TOKEN}`
+                    }
+                  });
+                  console.log(`Set Status to "${newStatusOption.name}" for item ${itemId}`);
+                } else {
+                  console.log('Could not find appropriate Status option');
+                }
+              } catch (e) {
+                console.log(`Error updating Status field: ${e.message}`);
+              }
+              
+              // Add Partner field - assuming it's a single select field
+              if ('${{ steps.extract_data.outputs.partner_name }}' !== 'Unknown') {
+                try {
+                  // First, we need to get the option ID for the partner name
+                  const getOptionsQuery = `
+                    query {
+                      node(id: "${PROJECT_ID}") {
+                        ... on ProjectV2 {
+                          field(id: "${PARTNER_FIELD_ID}") {
+                            ... on ProjectV2SingleSelectField {
+                              options {
+                                id
+                                name
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `;
+                  
+                  const optionsResponse = await github.graphql(getOptionsQuery, {
+                    headers: {
+                      authorization: `token ${process.env.GITHUB_TOKEN}`
+                    }
+                  });
+                  
+                  const options = optionsResponse.node.field.options;
+                  const partnerName = '${{ steps.extract_data.outputs.partner_name }}';
+                  const partnerOption = options.find(option => option.name === partnerName);
+                  
+                  if (partnerOption) {
+                    const updatePartnerMutation = `
+                      mutation {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: "${PROJECT_ID}"
+                          itemId: "${itemId}"
+                          fieldId: "${PARTNER_FIELD_ID}"
+                          value: {
+                            singleSelectOptionId: "${partnerOption.id}"
+                          }
+                        }) {
+                          projectV2Item {
+                            id
+                          }
+                        }
+                      }
+                    `;
+                    
+                    await github.graphql(updatePartnerMutation, {
+                      headers: {
+                        authorization: `token ${process.env.GITHUB_TOKEN}`
+                      }
+                    });
+                    console.log(`Updated Partner field for item ${itemId}`);
+                  } else {
+                    console.log(`Partner option "${partnerName}" not found in project options`);
+                  }
+                } catch (e) {
+                  console.log(`Error updating partner field: ${e.message}`);
+                }
+              }
+              
+              // Update Engagement Type field
+              if ('${{ steps.extract_data.outputs.engagement_type }}' !== 'Unknown') {
+                try {
+                  // Get options for Engagement Type
+                  const getEngagementOptionsQuery = `
+                    query {
+                      node(id: "${PROJECT_ID}") {
+                        ... on ProjectV2 {
+                          field(id: "${ENGAGEMENT_TYPE_FIELD_ID}") {
+                            ... on ProjectV2SingleSelectField {
+                              options {
+                                id
+                                name
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `;
+                  
+                  const engagementOptionsResponse = await github.graphql(getEngagementOptionsQuery, {
+                    headers: {
+                      authorization: `token ${process.env.GITHUB_TOKEN}`
+                    }
+                  });
+                  
+                  const engagementOptions = engagementOptionsResponse.node.field.options;
+                  const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
+                  const engagementOption = engagementOptions.find(option => option.name === engagementType);
+                  
+                  if (engagementOption) {
+                    const updateEngagementMutation = `
+                      mutation {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: "${PROJECT_ID}"
+                          itemId: "${itemId}"
+                          fieldId: "${ENGAGEMENT_TYPE_FIELD_ID}"
+                          value: {
+                            singleSelectOptionId: "${engagementOption.id}"
+                          }
+                        }) {
+                          projectV2Item {
+                            id
+                          }
+                        }
+                      }
+                    `;
+                    
+                    await github.graphql(updateEngagementMutation, {
+                      headers: {
+                        authorization: `token ${process.env.GITHUB_TOKEN}`
+                      }
+                    });
+                    console.log(`Updated Engagement Type field for item ${itemId}`);
+                  } else {
+                    console.log(`Engagement Type option "${engagementType}" not found in project options`);
+                  }
+                } catch (e) {
+                  console.log(`Error updating engagement type field: ${e.message}`);
+                }
+              }
+              
+              // Update Date Completed field
+              if ('${{ steps.extract_data.outputs.date_completed }}' !== 'Unknown') {
+                try {
+                  const dateCompleted = '${{ steps.extract_data.outputs.date_completed }}';
+                  const updateDateMutation = `
+                    mutation {
+                      updateProjectV2ItemFieldValue(input: {
+                        projectId: "${PROJECT_ID}"
+                        itemId: "${itemId}"
+                        fieldId: "${DATE_COMPLETED_FIELD_ID}"
+                        value: {
+                          date: "${dateCompleted}"
+                        }
+                      }) {
+                        projectV2Item {
+                          id
+                        }
+                      }
+                    }
+                  `;
+                  
+                  await github.graphql(updateDateMutation, {
+                    headers: {
+                      authorization: `token ${process.env.GITHUB_TOKEN}`
+                    }
+                  });
+                  console.log(`Updated Date Completed field for item ${itemId}`);
+                } catch (e) {
+                  console.log(`Error updating date field: ${e.message}`);
+                }
+              }
+              
+            } catch (error) {
+              console.log(`Error in project integration: ${error.message}`);
+            }
