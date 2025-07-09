@@ -28,7 +28,7 @@ This repository implements a feedback collection and analysis system using GitHu
 ### For Team Members Analyzing Feedback
 
 1. View all feedback in the [Issues tab](https://github.com/johnaldy/partner_feedback/issues?q=is%3Aissue+label%3Afeedback)
-2. Use the [Project board](https://github.com/johnaldy/partner_feedback/projects) for visualization and analysis
+2. Use the [Project board](https://github.com/johnaldy/feedback/projects) for visualization and analysis
 3. Filter feedback by partner, engagement type, or CSAT score using labels
 
 ## Metrics Collected
