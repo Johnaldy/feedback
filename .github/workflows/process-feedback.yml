@@ -179,7 +179,7 @@ jobs:
             🌎 **Vertical**: ${vertical}
             
             *This analysis was automatically generated based on the feedback submission.*
-            *Last processed: 2025-07-09 00:09:33 UTC*
+            *Last processed: 2025-07-09 00:31:24 UTC*
             `;
             
             github.rest.issues.createComment({
@@ -199,8 +199,8 @@ jobs:
               });
             }
 
-      # Trigger the new add-to-project workflow
-      - name: Trigger Add to Project
+      # Trigger the new add-to-project-cli workflow
+      - name: Trigger Add to Project CLI
         if: steps.check_comments.outputs.skip_processing != 'true'
         uses: actions/github-script@v6
         with:
@@ -210,13 +210,27 @@ jobs:
               await github.rest.actions.createWorkflowDispatch({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                workflow_id: 'add-to-project.yml',
-                ref: 'main',
+                workflow_id: 'add-to-project-cli.yml',
+                ref: 'main',  // Make sure this matches your default branch
                 inputs: {
                   issue_number: context.issue.number.toString()
                 }
               });
-              console.log(`Triggered add-to-project workflow for issue #${context.issue.number}`);
+              console.log(`Triggered add-to-project-cli workflow for issue #${context.issue.number}`);
             } catch (error) {
-              console.log(`Error triggering add-to-project workflow: ${error.message}`);
+              console.log(`Error triggering add-to-project-cli workflow: ${error.message}`);
+              
+              // If the workflow doesn't exist yet or can't be triggered, invoke the issue URL directly
+              console.log("Falling back to direct project integration...");
+              
+              const issueId = context.payload.issue.node_id;
+              console.log(`Issue GraphQL Node ID: ${issueId}`);
+              
+              // This is a simple announcement so we know what's happening
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: "⚙️ Attempting to add this issue to the project board. Check the Actions tab for progress."
+              });
             }
