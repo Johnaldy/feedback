@@ -40,6 +40,7 @@ jobs:
                   issue(number:$number) {
                     id
                     title
+                    body
                   }
                 }
               }
@@ -51,6 +52,7 @@ jobs:
             
             // Store the issue node ID
             const issueId = issueData.repository.issue.id;
+            const issueBody = issueData.repository.issue.body;
             console.log(`Issue GraphQL ID: ${issueId}`);
             console.log(`Issue Title: ${issueData.repository.issue.title}`);
             
@@ -63,6 +65,80 @@ jobs:
               const csatScore = parseFloat(csatMatch[1]);
               console.log(`Found CSAT score: ${csatScore}`);
               core.setOutput('csat_score', csatScore);
+            }
+            
+            // Helper function to extract form fields with various formats
+            function extractValue(fieldName, isNumber = false) {
+              // Try multiple patterns to match various form formats
+              const patterns = [
+                // Form checkbox/dropdown selection format
+                new RegExp(`${fieldName}.*?\\n.*?- (.*?)($|\\n)`, 's'),
+                // Form input format
+                new RegExp(`${fieldName}.*?\\n\\s*(.*?)($|\\n)`, 's'),
+                // Key-value format
+                new RegExp(`${fieldName}.*?: *(.*?)($|\\n)`, 's'),
+                // GitHub form format with ###
+                new RegExp(`### ${fieldName}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's'),
+                // Direct match for numbers
+                isNumber ? new RegExp(`${fieldName}[\\s\\S]*?(\\d+\\.?\\d*)`) : null
+              ].filter(Boolean);
+              
+              for (const pattern of patterns) {
+                const match = issueBody.match(pattern);
+                if (match && match[1]) {
+                  const value = match[1].trim();
+                  if (value && (!isNumber || !isNaN(parseFloat(value)))) {
+                    return value;
+                  }
+                }
+              }
+              
+              // Try extracting by form field ID
+              const fieldIdMap = {
+                'AVG Overall Customer Satisfaction': 'overall_satisfaction',
+                'AVG Quality of Work/Material': 'quality_of_work',
+                'AVG Effectiveness of Communication': 'communication',
+                'AVG Impact/Value of Service': 'impact_value',
+                'Partner Name': 'partner_name',
+                'Engagement Type': 'engagement_type',
+                'Date Completed': 'date_completed',
+                'Vertical': 'vertical'
+              };
+              
+              const fieldId = fieldIdMap[fieldName];
+              if (fieldId) {
+                const idPattern = new RegExp(`### ${fieldId}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's');
+                const match = issueBody.match(idPattern);
+                if (match && match[1]) {
+                  const value = match[1].trim();
+                  if (value && (!isNumber || !isNaN(parseFloat(value)))) {
+                    return value;
+                  }
+                }
+              }
+              
+              return null;
+            }
+            
+            // Extract partner name and other data
+            const partnerName = extractValue('Partner Name');
+            const engagementType = extractValue('Engagement Type');
+            const vertical = extractValue('Vertical');
+            
+            // Output these values for later steps
+            if (partnerName) {
+              console.log(`Partner Name: ${partnerName}`);
+              core.setOutput('partner_name', partnerName);
+            }
+            
+            if (engagementType) {
+              console.log(`Engagement Type: ${engagementType}`);
+              core.setOutput('engagement_type', engagementType);
+            }
+            
+            if (vertical) {
+              console.log(`Vertical: ${vertical}`);
+              core.setOutput('vertical', vertical);
             }
 
       - name: Get project ID
@@ -121,6 +197,8 @@ jobs:
               throw new Error("Missing required IDs");
             }
             
+            let itemId;
+            
             try {
               // Add the issue to the project
               const addItemMutation = await github.graphql(`
@@ -140,7 +218,7 @@ jobs:
               });
               
               console.log("Successfully added issue to project");
-              const itemId = addItemMutation.addProjectV2ItemById.item.id;
+              itemId = addItemMutation.addProjectV2ItemById.item.id;
               console.log(`Project item ID: ${itemId}`);
               core.setOutput('item_id', itemId);
               
@@ -185,6 +263,7 @@ jobs:
                   if (matchingItem) {
                     console.log(`Found existing project item: ${matchingItem.id}`);
                     console.log(`For issue #${matchingItem.content.number}: ${matchingItem.content.title}`);
+                    itemId = matchingItem.id;
                     core.setOutput('item_id', matchingItem.id);
                   } else {
                     console.log("Could not find existing item in project");
@@ -200,10 +279,15 @@ jobs:
                 throw error;
               }
             }
+            
+            // Wait a moment for the item to be fully created in the project
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Return the item ID for the next step
+            return itemId;
 
-      - name: Set field values
-        id: set_fields
-        if: steps.add_to_project.outputs.item_id
+      - name: Get and update fields
+        id: update_fields
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.PROJECT_PAT }}
@@ -211,24 +295,45 @@ jobs:
             const projectId = '${{ steps.get_project.outputs.project_id }}';
             const itemId = '${{ steps.add_to_project.outputs.item_id }}';
             const csatScore = '${{ steps.get_issue.outputs.csat_score }}';
+            const partnerName = '${{ steps.get_issue.outputs.partner_name }}';
+            const engagementType = '${{ steps.get_issue.outputs.engagement_type }}';
+            const vertical = '${{ steps.get_issue.outputs.vertical }}';
             
             if (!projectId || !itemId) {
               console.log("Missing project ID or item ID, skipping field updates");
               return;
             }
             
+            console.log(`Using project ID: ${projectId}`);
+            console.log(`Using item ID: ${itemId}`);
+            console.log(`CSAT score to set: ${csatScore || 'None'}`);
+            console.log(`Partner name to set: ${partnerName || 'None'}`);
+            
+            // IMPORTANT: Debug the actual project fields
             try {
+              console.log("Getting project fields...");
+              
               // Get all fields in the project
-              const fieldsQuery = await github.graphql(`
+              const projectQuery = `
                 query($projectId:ID!) {
                   node(id: $projectId) {
                     ... on ProjectV2 {
-                      fields(first: 20) {
+                      id
+                      title
+                      fields(first: 50) {
                         nodes {
                           ... on ProjectV2Field {
                             id
                             name
                             dataType
+                          }
+                          ... on ProjectV2IterationField {
+                            id
+                            name
+                            configuration {
+                              duration
+                              startDay
+                            }
                           }
                           ... on ProjectV2SingleSelectField {
                             id
@@ -247,16 +352,23 @@ jobs:
                     }
                   }
                 }
-              `, {
-                projectId: projectId
+              `;
+              
+              const projectData = await github.graphql(projectQuery, { 
+                projectId: projectId 
               });
               
-              const fields = fieldsQuery.node.fields.nodes;
+              if (!projectData.node || !projectData.node.fields) {
+                console.log("Could not fetch project fields");
+                return;
+              }
+              
+              const fields = projectData.node.fields.nodes;
               console.log(`Found ${fields.length} fields in project`);
               
-              // Log all fields for reference
-              fields.forEach(field => {
-                console.log(`Field: ${field.name} (${field.id})`);
+              // Debug all fields
+              fields.forEach((field, index) => {
+                console.log(`Field ${index + 1}: ${field.name} (${field.id}), type: ${field.dataType || 'select/special'}`);
                 if (field.options) {
                   console.log("  Options:");
                   field.options.forEach(option => {
@@ -265,34 +377,50 @@ jobs:
                 }
               });
               
-              // Find CSAT field
-              const csatField = fields.find(f => 
-                f.name.toLowerCase().includes('csat') ||
-                f.name.toLowerCase().includes('score') ||
-                f.name.toLowerCase().includes('rating')
-              );
-              
-              // Update CSAT score if field found and score available
-              if (csatField && csatScore) {
-                console.log(`Found CSAT field: ${csatField.name}`);
-                
-                let updateValue = {};
-                const score = parseFloat(csatScore);
-                
-                // Determine correct type for the field
-                if (csatField.dataType === 'NUMBER') {
-                  updateValue = { number: score };
-                } else {
-                  updateValue = { text: csatScore.toString() };
+              // Helper function to find field by name (case-insensitive partial match)
+              function findField(searchTerms) {
+                if (!Array.isArray(searchTerms)) {
+                  searchTerms = [searchTerms];
                 }
                 
+                for (const term of searchTerms) {
+                  const field = fields.find(f => 
+                    f.name && f.name.toLowerCase().includes(term.toLowerCase())
+                  );
+                  if (field) return field;
+                }
+                return null;
+              }
+              
+              // Helper function to find option in a field (case-insensitive partial match)
+              function findOption(field, searchTerm) {
+                if (!field.options) return null;
+                
+                // Try exact match first
+                let option = field.options.find(o => 
+                  o.name.toLowerCase() === searchTerm.toLowerCase()
+                );
+                
+                // If no exact match, try contains
+                if (!option) {
+                  option = field.options.find(o => 
+                    o.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    searchTerm.toLowerCase().includes(o.name.toLowerCase())
+                  );
+                }
+                
+                return option;
+              }
+              
+              // Helper function to update a field
+              async function updateField(fieldId, value) {
                 try {
-                  const updateMutation = await github.graphql(`
+                  const mutation = `
                     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:ProjectV2FieldValue!) {
                       updateProjectV2ItemFieldValue(input: {
-                        projectId: $projectId
-                        itemId: $itemId
-                        fieldId: $fieldId
+                        projectId: $projectId,
+                        itemId: $itemId,
+                        fieldId: $fieldId,
                         value: $value
                       }) {
                         projectV2Item {
@@ -300,49 +428,184 @@ jobs:
                         }
                       }
                     }
-                  `, {
+                  `;
+                  
+                  await github.graphql(mutation, {
                     projectId: projectId,
                     itemId: itemId,
-                    fieldId: csatField.id,
-                    value: updateValue
+                    fieldId: fieldId,
+                    value: value
                   });
                   
-                  console.log(`Successfully updated CSAT field to ${csatScore}`);
-                } catch (updateError) {
-                  console.log(`Error updating CSAT field: ${updateError.message}`);
-                  
-                  // Try alternative approach if the first fails
-                  try {
-                    if (csatField.dataType === 'NUMBER') {
-                      // Try directly with raw GraphQL
-                      const rawMutation = `
-                        mutation {
-                          updateProjectV2ItemFieldValue(input: {
-                            projectId: "${projectId}"
-                            itemId: "${itemId}"
-                            fieldId: "${csatField.id}"
-                            value: { number: ${score} }
-                          }) {
-                            projectV2Item {
-                              id
-                            }
-                          }
-                        }
-                      `;
-                      
-                      await github.graphql(rawMutation);
-                      console.log(`Updated CSAT field using alternative method`);
-                    }
-                  } catch (fallbackError) {
-                    console.log(`Fallback approach also failed: ${fallbackError.message}`);
-                  }
+                  return true;
+                } catch (error) {
+                  console.log(`Error updating field: ${error.message}`);
+                  return false;
                 }
-              } else if (!csatField) {
-                console.log("No CSAT field found in project");
-              } else if (!csatScore) {
-                console.log("No CSAT score available to update");
+              }
+              
+              // 1. Update CSAT/Rating field
+              if (csatScore && csatScore !== 'null') {
+                const csatField = findField(['csat', 'rating', 'score']);
+                if (csatField) {
+                  console.log(`Found CSAT field: ${csatField.name} (${csatField.id})`);
+                  
+                  const score = parseFloat(csatScore);
+                  if (!isNaN(score)) {
+                    // Try as number first
+                    console.log(`Updating CSAT field with number value: ${score}`);
+                    let success = await updateField(csatField.id, { number: score });
+                    
+                    // If number fails, try as text
+                    if (!success) {
+                      console.log(`Trying to update CSAT as text: "${csatScore}"`);
+                      success = await updateField(csatField.id, { text: csatScore });
+                    }
+                    
+                    if (success) {
+                      console.log(`Successfully updated CSAT field to ${csatScore}`);
+                    }
+                  }
+                } else {
+                  console.log("No CSAT field found in project");
+                }
+              }
+              
+              // 2. Update Partner field
+              if (partnerName && partnerName !== 'null') {
+                const partnerField = findField(['partner', 'client', 'company']);
+                if (partnerField) {
+                  console.log(`Found Partner field: ${partnerField.name} (${partnerField.id})`);
+                  
+                  if (partnerField.options) {
+                    // It's a select field
+                    const partnerOption = findOption(partnerField, partnerName);
+                    if (partnerOption) {
+                      console.log(`Found matching option: ${partnerOption.name} (${partnerOption.id})`);
+                      const success = await updateField(partnerField.id, { 
+                        singleSelectOptionId: partnerOption.id 
+                      });
+                      
+                      if (success) {
+                        console.log(`Successfully set Partner field to "${partnerOption.name}"`);
+                      }
+                    } else {
+                      console.log(`No matching option found for partner "${partnerName}"`);
+                      console.log("Available options:");
+                      partnerField.options.forEach(o => console.log(`- ${o.name}`));
+                    }
+                  } else {
+                    // It's a text field
+                    const success = await updateField(partnerField.id, { text: partnerName });
+                    if (success) {
+                      console.log(`Successfully set Partner text field to "${partnerName}"`);
+                    }
+                  }
+                } else {
+                  console.log("No Partner field found in project");
+                }
+              }
+              
+              // 3. Update Engagement Type field
+              if (engagementType && engagementType !== 'null') {
+                const typeField = findField(['engagement', 'type']);
+                if (typeField) {
+                  console.log(`Found Engagement Type field: ${typeField.name} (${typeField.id})`);
+                  
+                  if (typeField.options) {
+                    // It's a select field
+                    const typeOption = findOption(typeField, engagementType);
+                    if (typeOption) {
+                      console.log(`Found matching option: ${typeOption.name} (${typeOption.id})`);
+                      const success = await updateField(typeField.id, { 
+                        singleSelectOptionId: typeOption.id 
+                      });
+                      
+                      if (success) {
+                        console.log(`Successfully set Engagement Type field to "${typeOption.name}"`);
+                      }
+                    } else {
+                      console.log(`No matching option found for type "${engagementType}"`);
+                    }
+                  } else {
+                    // It's a text field
+                    const success = await updateField(typeField.id, { text: engagementType });
+                    if (success) {
+                      console.log(`Successfully set Engagement Type text field to "${engagementType}"`);
+                    }
+                  }
+                } else {
+                  console.log("No Engagement Type field found in project");
+                }
+              }
+              
+              // 4. Update Vertical field
+              if (vertical && vertical !== 'null') {
+                const verticalField = findField(['vertical', 'industry', 'sector']);
+                if (verticalField) {
+                  console.log(`Found Vertical field: ${verticalField.name} (${verticalField.id})`);
+                  
+                  if (verticalField.options) {
+                    // It's a select field
+                    const vertOption = findOption(verticalField, vertical);
+                    if (vertOption) {
+                      console.log(`Found matching option: ${vertOption.name} (${vertOption.id})`);
+                      const success = await updateField(verticalField.id, { 
+                        singleSelectOptionId: vertOption.id 
+                      });
+                      
+                      if (success) {
+                        console.log(`Successfully set Vertical field to "${vertOption.name}"`);
+                      }
+                    } else {
+                      console.log(`No matching option found for vertical "${vertical}"`);
+                    }
+                  } else {
+                    // It's a text field
+                    const success = await updateField(verticalField.id, { text: vertical });
+                    if (success) {
+                      console.log(`Successfully set Vertical text field to "${vertical}"`);
+                    }
+                  }
+                } else {
+                  console.log("No Vertical field found in project");
+                }
+              }
+              
+              // 5. Set Status field to "New" or similar
+              const statusField = findField(['status', 'state']);
+              if (statusField && statusField.options) {
+                console.log(`Found Status field: ${statusField.name} (${statusField.id})`);
+                
+                // Try to find a "New" or "Todo" option
+                const newOptions = ['new', 'todo', 'to do', 'backlog', 'incoming', 'triage'];
+                let statusOption = null;
+                
+                for (const term of newOptions) {
+                  statusOption = statusField.options.find(o => 
+                    o.name.toLowerCase() === term || 
+                    o.name.toLowerCase().includes(term)
+                  );
+                  if (statusOption) break;
+                }
+                
+                if (statusOption) {
+                  console.log(`Found status option: ${statusOption.name} (${statusOption.id})`);
+                  const success = await updateField(statusField.id, { 
+                    singleSelectOptionId: statusOption.id 
+                  });
+                  
+                  if (success) {
+                    console.log(`Successfully set Status field to "${statusOption.name}"`);
+                  }
+                } else {
+                  console.log("No suitable status option found");
+                }
+              } else {
+                console.log("No Status field found in project");
               }
               
             } catch (error) {
-              console.log(`Error setting field values: ${error.message}`);
+              console.log(`Error updating fields: ${error.message}`);
+              console.log(error.stack);
             }
