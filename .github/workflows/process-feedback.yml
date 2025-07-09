@@ -44,12 +44,6 @@ jobs:
             
             core.setOutput('skip_processing', 'false');
 
-      - name: Checkout repository
-        if: steps.check_comments.outputs.skip_processing != 'true'
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.PROJECT_PAT }}
-
       - name: Add feedback label if missing
         if: steps.check_comments.outputs.skip_processing != 'true' && !contains(github.event.issue.labels.*.name, 'feedback')
         uses: actions/github-script@v6
@@ -186,7 +180,7 @@ jobs:
             🌎 **Vertical**: ${vertical}
             
             *This analysis was automatically generated based on the feedback submission.*
-            *Last processed: 2025-07-08 23:48:06 UTC*
+            *Last processed: 2025-07-08 23:56:56 UTC*
             `;
             
             github.rest.issues.createComment({
@@ -206,213 +200,22 @@ jobs:
               });
             }
 
-      # STEP 1: Add to project using the official GitHub action (simplified approach)
-      - name: Add issue to project
+      # Trigger the project integration workflow
+      - name: Trigger Project Integration
         if: steps.check_comments.outputs.skip_processing != 'true'
-        id: add-to-project
-        uses: actions/add-to-project@v0.5.0
-        with:
-          # IMPORTANT: Updated to your specific project URL
-          project-url: https://github.com/users/Johnaldy/projects/7
-          github-token: ${{ secrets.PROJECT_PAT }}
-
-      # STEP 2: Set field values using GitHub API directly - FIXED THE PROJECT ID ISSUE
-      - name: Set project fields
-        if: steps.check_comments.outputs.skip_processing != 'true' && steps.add-to-project.outputs.itemId != ''
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.PROJECT_PAT }}
           script: |
-            const itemId = '${{ steps.add-to-project.outputs.itemId }}';
-            // Extract project ID correctly from outputs
-            const projectId = '${{ steps.add-to-project.outputs.projectId }}';
-            
-            console.log(`Successfully added issue to project. Item ID: ${itemId}`);
-            console.log(`Project ID: ${projectId}`);
-            
-            if (!projectId || projectId === '') {
-              console.log('Error: No project ID provided from add-to-project step');
-              return;
-            }
-            
-            // First, get the project fields to find the field IDs we need
-            try {
-              const projectQuery = `
-                query($projectId: ID!) {
-                  node(id: $projectId) {
-                    ... on ProjectV2 {
-                      fields(first: 20) {
-                        nodes {
-                          ... on ProjectV2Field {
-                            id
-                            name
-                            dataType
-                          }
-                          ... on ProjectV2IterationField {
-                            id
-                            name
-                          }
-                          ... on ProjectV2SingleSelectField {
-                            id
-                            name
-                            options {
-                              id
-                              name
-                            }
-                          }
-                          ... on ProjectV2NumberField {
-                            id
-                            name
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              `;
-              
-              const projectData = await github.graphql(projectQuery, {
-                projectId: projectId
-              });
-              
-              console.log("Project fields retrieved successfully");
-              
-              // Log all fields for debugging
-              const fields = projectData.node.fields.nodes;
-              console.log("Available fields:");
-              fields.forEach(field => {
-                console.log(`- ${field.name}: ${field.id} (${field.dataType || 'unknown type'})`);
-                if (field.options) {
-                  console.log("  Options:");
-                  field.options.forEach(option => {
-                    console.log(`  - ${option.name}: ${option.id}`);
-                  });
-                }
-              });
-              
-              // Find fields by name (case insensitive)
-              const findField = (name) => {
-                return fields.find(f => 
-                  f.name && (
-                    f.name.toLowerCase().includes(name.toLowerCase()) ||
-                    name.toLowerCase().includes(f.name.toLowerCase())
-                  )
-                );
-              };
-              
-              // Look for CSAT or rating field
-              const csatField = findField('csat') || findField('rating') || findField('score');
-              if (csatField) {
-                console.log(`Found CSAT field: ${csatField.name} (${csatField.id})`);
-                
-                // Update CSAT field if it's a number and we have a valid CSAT score
-                const csatValue = parseFloat('${{ steps.extract_data.outputs.csat_score }}');
-                if (!isNaN(csatValue)) {
-                  try {
-                    // Use the appropriate value type based on field data type
-                    const valueType = csatField.dataType === 'TEXT' ? 'text' : 'number';
-                    const value = valueType === 'text' ? 
-                      `{ text: "${csatValue}" }` : 
-                      `{ number: ${csatValue} }`;
-                    
-                    const updateCsatMutation = `
-                      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
-                        updateProjectV2ItemFieldValue(input: {
-                          projectId: $projectId
-                          itemId: $itemId
-                          fieldId: $fieldId
-                          value: $value
-                        }) {
-                          projectV2Item { id }
-                        }
-                      }
-                    `;
-                    
-                    await github.graphql(updateCsatMutation, {
-                      projectId: projectId,
-                      itemId: itemId,
-                      fieldId: csatField.id,
-                      value: valueType === 'text' ? { text: csatValue.toString() } : { number: csatValue }
-                    });
-                    console.log(`Updated CSAT field to ${csatValue}`);
-                  } catch (e) {
-                    console.log(`Error updating CSAT field: ${e.message}`);
-                    
-                    // Try alternative as text if number fails
-                    try {
-                      const updateCsatMutation = `
-                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
-                          updateProjectV2ItemFieldValue(input: {
-                            projectId: $projectId
-                            itemId: $itemId
-                            fieldId: $fieldId
-                            value: { text: "${csatValue}" }
-                          }) {
-                            projectV2Item { id }
-                          }
-                        }
-                      `;
-                      
-                      await github.graphql(updateCsatMutation, {
-                        projectId: projectId,
-                        itemId: itemId,
-                        fieldId: csatField.id
-                      });
-                      console.log(`Updated CSAT field as text to ${csatValue}`);
-                    } catch (textError) {
-                      console.log(`Error updating CSAT as text: ${textError.message}`);
-                    }
-                  }
-                }
+            // Trigger the project-integration workflow
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'project-integration.yml',
+              ref: context.ref,
+              inputs: {
+                issue_number: context.issue.number.toString()
               }
-              
-              // Similar fixes for other field updates...
-              // Look for Partner field
-              const partnerField = findField('partner') || findField('client') || findField('company');
-              if (partnerField && partnerField.options) {
-                const partnerName = '${{ steps.extract_data.outputs.partner_name }}';
-                if (partnerName && partnerName !== 'Unknown') {
-                  // Try to find matching option
-                  const partnerOption = partnerField.options.find(opt => 
-                    opt.name.toLowerCase() === partnerName.toLowerCase() ||
-                    opt.name.toLowerCase().includes(partnerName.toLowerCase()) ||
-                    partnerName.toLowerCase().includes(opt.name.toLowerCase())
-                  );
-                  
-                  if (partnerOption) {
-                    try {
-                      const updatePartnerMutation = `
-                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-                          updateProjectV2ItemFieldValue(input: {
-                            projectId: $projectId
-                            itemId: $itemId
-                            fieldId: $fieldId
-                            value: { singleSelectOptionId: $optionId }
-                          }) {
-                            projectV2Item { id }
-                          }
-                        }
-                      `;
-                      
-                      await github.graphql(updatePartnerMutation, {
-                        projectId: projectId,
-                        itemId: itemId,
-                        fieldId: partnerField.id,
-                        optionId: partnerOption.id
-                      });
-                      console.log(`Updated Partner field to ${partnerOption.name}`);
-                    } catch (e) {
-                      console.log(`Error updating Partner field: ${e.message}`);
-                    }
-                  } else {
-                    console.log(`Could not find matching option for partner: ${partnerName}`);
-                    console.log('Available options:');
-                    partnerField.options.forEach(opt => console.log(` - ${opt.name}`));
-                  }
-                }
-              }
-              
-            } catch (error) {
-              console.log(`Error setting project fields: ${error.message}`);
-              console.log(error.stack);
-            }
+            });
+            
+            console.log(`Triggered project integration workflow for issue #${context.issue.number}`);
