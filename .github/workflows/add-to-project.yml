@@ -1,0 +1,348 @@
+name: Add Issue to Project Board
+
+on:
+  issues:
+    types: [opened, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to add to project"
+        required: true
+        type: number
+
+jobs:
+  add_to_project:
+    name: Add issue to project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get issue details
+        id: get_issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            // Determine issue number from trigger
+            let issueNumber;
+            if (context.payload.inputs && context.payload.inputs.issue_number) {
+              issueNumber = parseInt(context.payload.inputs.issue_number);
+            } else if (context.payload.issue) {
+              issueNumber = context.payload.issue.number;
+            } else {
+              throw new Error("No issue number found");
+            }
+            
+            console.log(`Working with issue #${issueNumber}`);
+            
+            // First, get the issue node ID (GraphQL ID, not the number)
+            const issueData = await github.graphql(`
+              query($owner:String!, $repo:String!, $number:Int!) {
+                repository(owner:$owner, name:$repo) {
+                  issue(number:$number) {
+                    id
+                    title
+                  }
+                }
+              }
+            `, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              number: issueNumber
+            });
+            
+            // Store the issue node ID
+            const issueId = issueData.repository.issue.id;
+            console.log(`Issue GraphQL ID: ${issueId}`);
+            console.log(`Issue Title: ${issueData.repository.issue.title}`);
+            
+            core.setOutput('issue_id', issueId);
+            core.setOutput('issue_number', issueNumber);
+            
+            // Extract CSAT from title if present
+            const csatMatch = issueData.repository.issue.title.match(/\[CSAT: ([\d\.]+)\]/);
+            if (csatMatch && csatMatch[1]) {
+              const csatScore = parseFloat(csatMatch[1]);
+              console.log(`Found CSAT score: ${csatScore}`);
+              core.setOutput('csat_score', csatScore);
+            }
+
+      - name: Get project ID
+        id: get_project
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            // Get the project node ID (GraphQL ID)
+            const projectNumber = 7;  // Your project number
+            const owner = 'Johnaldy'; // Your username
+            
+            try {
+              const projectData = await github.graphql(`
+                query($owner:String!, $number:Int!) {
+                  user(login:$owner) {
+                    projectV2(number:$number) {
+                      id
+                      title
+                      url
+                    }
+                  }
+                }
+              `, {
+                owner: owner,
+                number: projectNumber
+              });
+              
+              // Store the project node ID
+              const projectId = projectData.user.projectV2.id;
+              const projectTitle = projectData.user.projectV2.title;
+              const projectUrl = projectData.user.projectV2.url;
+              
+              console.log(`Project GraphQL ID: ${projectId}`);
+              console.log(`Project Title: ${projectTitle}`);
+              console.log(`Project URL: ${projectUrl}`);
+              
+              core.setOutput('project_id', projectId);
+              core.setOutput('project_title', projectTitle);
+              
+            } catch (error) {
+              console.log(`Error getting project: ${error.message}`);
+              throw error;
+            }
+
+      - name: Add issue to project
+        id: add_to_project
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            const issueId = '${{ steps.get_issue.outputs.issue_id }}';
+            const projectId = '${{ steps.get_project.outputs.project_id }}';
+            
+            if (!issueId || !projectId) {
+              throw new Error("Missing required IDs");
+            }
+            
+            try {
+              // Add the issue to the project
+              const addItemMutation = await github.graphql(`
+                mutation($projectId:ID!, $contentId:ID!) {
+                  addProjectV2ItemById(input: {
+                    projectId: $projectId
+                    contentId: $contentId
+                  }) {
+                    item {
+                      id
+                    }
+                  }
+                }
+              `, {
+                projectId: projectId,
+                contentId: issueId
+              });
+              
+              console.log("Successfully added issue to project");
+              const itemId = addItemMutation.addProjectV2ItemById.item.id;
+              console.log(`Project item ID: ${itemId}`);
+              core.setOutput('item_id', itemId);
+              
+            } catch (error) {
+              if (error.message.includes("already exists")) {
+                // Issue is already in the project, so find it
+                console.log("Issue already in project, looking up the item...");
+                
+                try {
+                  // Find the existing project item
+                  const itemsQuery = await github.graphql(`
+                    query($projectId:ID!, $first:Int!) {
+                      node(id: $projectId) {
+                        ... on ProjectV2 {
+                          items(first: $first) {
+                            nodes {
+                              id
+                              content {
+                                ... on Issue {
+                                  id
+                                  number
+                                  title
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `, {
+                    projectId: projectId,
+                    first: 100 // Retrieve up to 100 items
+                  });
+                  
+                  // Find the item with matching issue ID
+                  const items = itemsQuery.node.items.nodes;
+                  const matchingItem = items.find(item => 
+                    item.content && 
+                    item.content.id === issueId
+                  );
+                  
+                  if (matchingItem) {
+                    console.log(`Found existing project item: ${matchingItem.id}`);
+                    console.log(`For issue #${matchingItem.content.number}: ${matchingItem.content.title}`);
+                    core.setOutput('item_id', matchingItem.id);
+                  } else {
+                    console.log("Could not find existing item in project");
+                    throw new Error("Issue should be in project but couldn't find it");
+                  }
+                  
+                } catch (lookupError) {
+                  console.log(`Error looking up existing item: ${lookupError.message}`);
+                  throw lookupError;
+                }
+              } else {
+                console.log(`Error adding issue to project: ${error.message}`);
+                throw error;
+              }
+            }
+
+      - name: Set field values
+        id: set_fields
+        if: steps.add_to_project.outputs.item_id
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            const projectId = '${{ steps.get_project.outputs.project_id }}';
+            const itemId = '${{ steps.add_to_project.outputs.item_id }}';
+            const csatScore = '${{ steps.get_issue.outputs.csat_score }}';
+            
+            if (!projectId || !itemId) {
+              console.log("Missing project ID or item ID, skipping field updates");
+              return;
+            }
+            
+            try {
+              // Get all fields in the project
+              const fieldsQuery = await github.graphql(`
+                query($projectId:ID!) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      fields(first: 20) {
+                        nodes {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                            dataType
+                          }
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                            options {
+                              id
+                              name
+                            }
+                          }
+                          ... on ProjectV2NumberField {
+                            id
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, {
+                projectId: projectId
+              });
+              
+              const fields = fieldsQuery.node.fields.nodes;
+              console.log(`Found ${fields.length} fields in project`);
+              
+              // Log all fields for reference
+              fields.forEach(field => {
+                console.log(`Field: ${field.name} (${field.id})`);
+                if (field.options) {
+                  console.log("  Options:");
+                  field.options.forEach(option => {
+                    console.log(`  - ${option.name} (${option.id})`);
+                  });
+                }
+              });
+              
+              // Find CSAT field
+              const csatField = fields.find(f => 
+                f.name.toLowerCase().includes('csat') ||
+                f.name.toLowerCase().includes('score') ||
+                f.name.toLowerCase().includes('rating')
+              );
+              
+              // Update CSAT score if field found and score available
+              if (csatField && csatScore) {
+                console.log(`Found CSAT field: ${csatField.name}`);
+                
+                let updateValue = {};
+                const score = parseFloat(csatScore);
+                
+                // Determine correct type for the field
+                if (csatField.dataType === 'NUMBER') {
+                  updateValue = { number: score };
+                } else {
+                  updateValue = { text: csatScore.toString() };
+                }
+                
+                try {
+                  const updateMutation = await github.graphql(`
+                    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:ProjectV2FieldValue!) {
+                      updateProjectV2ItemFieldValue(input: {
+                        projectId: $projectId
+                        itemId: $itemId
+                        fieldId: $fieldId
+                        value: $value
+                      }) {
+                        projectV2Item {
+                          id
+                        }
+                      }
+                    }
+                  `, {
+                    projectId: projectId,
+                    itemId: itemId,
+                    fieldId: csatField.id,
+                    value: updateValue
+                  });
+                  
+                  console.log(`Successfully updated CSAT field to ${csatScore}`);
+                } catch (updateError) {
+                  console.log(`Error updating CSAT field: ${updateError.message}`);
+                  
+                  // Try alternative approach if the first fails
+                  try {
+                    if (csatField.dataType === 'NUMBER') {
+                      // Try directly with raw GraphQL
+                      const rawMutation = `
+                        mutation {
+                          updateProjectV2ItemFieldValue(input: {
+                            projectId: "${projectId}"
+                            itemId: "${itemId}"
+                            fieldId: "${csatField.id}"
+                            value: { number: ${score} }
+                          }) {
+                            projectV2Item {
+                              id
+                            }
+                          }
+                        }
+                      `;
+                      
+                      await github.graphql(rawMutation);
+                      console.log(`Updated CSAT field using alternative method`);
+                    }
+                  } catch (fallbackError) {
+                    console.log(`Fallback approach also failed: ${fallbackError.message}`);
+                  }
+                }
+              } else if (!csatField) {
+                console.log("No CSAT field found in project");
+              } else if (!csatScore) {
+                console.log("No CSAT score available to update");
+              }
+              
+            } catch (error) {
+              console.log(`Error setting field values: ${error.message}`);
+            }
