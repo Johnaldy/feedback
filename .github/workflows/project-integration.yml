@@ -1,0 +1,300 @@
+name: Project Board Integration
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to add to project'
+        required: true
+        type: number
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get issue details
+        id: get_issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            let issueNumber;
+            if (context.payload.inputs && context.payload.inputs.issue_number) {
+              // Manual trigger
+              issueNumber = context.payload.inputs.issue_number;
+              console.log(`Manually triggered for issue #${issueNumber}`);
+            } else if (context.payload.issue) {
+              // Triggered by issue event
+              issueNumber = context.payload.issue.number;
+              console.log(`Triggered by issue event for #${issueNumber}`);
+            } else {
+              console.log('No issue number found in trigger');
+              return;
+            }
+            
+            try {
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              
+              console.log(`Found issue: ${issue.data.title}`);
+              
+              // Check if it's a feedback issue
+              const isFeedback = issue.data.title.includes('[Feedback]') || 
+                issue.data.labels.some(label => label.name.toLowerCase() === 'feedback');
+              
+              if (!isFeedback) {
+                console.log('Not a feedback issue, skipping');
+                return;
+              }
+              
+              // Set outputs for later steps
+              core.setOutput('issue_number', issueNumber);
+              core.setOutput('issue_title', issue.data.title);
+              core.setOutput('is_feedback', 'true');
+              
+              // Extract CSAT score from title if present
+              const csatMatch = issue.data.title.match(/\[CSAT: ([\d\.]+)\]/);
+              if (csatMatch && csatMatch[1]) {
+                core.setOutput('csat_score', csatMatch[1]);
+                console.log(`Found CSAT score: ${csatMatch[1]}`);
+              }
+              
+            } catch (error) {
+              console.log(`Error getting issue: ${error.message}`);
+            }
+
+      - name: Add to project
+        if: steps.get_issue.outputs.is_feedback == 'true'
+        id: add_to_project
+        uses: actions/add-to-project@v0.5.0
+        with:
+          project-url: https://github.com/users/Johnaldy/projects/7
+          github-token: ${{ secrets.PROJECT_PAT }}
+          issue-id: ${{ github.event.issue.node_id || '' }}
+          # Print detailed debug info
+          debug: true
+
+      - name: Debug project info
+        if: steps.add_to_project.outputs.itemId != ''
+        run: |
+          echo "Added issue to project successfully"
+          echo "Item ID: ${{ steps.add_to_project.outputs.itemId }}"
+          echo "Project ID: ${{ steps.add_to_project.outputs.projectId }}"
+          
+          # Print environment for debugging
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "GitHub Repository: ${{ github.repository }}"
+          echo "GitHub Event Name: ${{ github.event_name }}"
+
+      - name: Set project fields
+        if: steps.add_to_project.outputs.itemId != ''
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          retries: 3
+          script: |
+            const itemId = '${{ steps.add_to_project.outputs.itemId }}';
+            const projectId = '${{ steps.add_to_project.outputs.projectId }}';
+            
+            // Verify we have the necessary IDs
+            if (!itemId || !projectId) {
+              console.log('Missing required IDs');
+              console.log(`Item ID: ${itemId}`);
+              console.log(`Project ID: ${projectId}`);
+              return;
+            }
+            
+            console.log(`Using Item ID: ${itemId}`);
+            console.log(`Using Project ID: ${projectId}`);
+            
+            // Function to safely execute GraphQL queries with retries
+            async function executeQuery(query, variables = {}, retries = 3) {
+              let lastError;
+              for (let i = 0; i < retries; i++) {
+                try {
+                  return await github.graphql(query, variables);
+                } catch (error) {
+                  console.log(`Attempt ${i+1} failed: ${error.message}`);
+                  lastError = error;
+                  // Wait briefly before retrying
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+              }
+              throw new Error(`Failed after ${retries} attempts. Last error: ${lastError.message}`);
+            }
+            
+            try {
+              // Use built-in octokit functions when possible
+              console.log('Fetching project fields...');
+              
+              // Basic query to get project fields
+              const projectQuery = `
+                query($projectId: ID!) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      title
+                      fields(first: 20) {
+                        nodes {
+                          ... on ProjectV2Field {
+                            id
+                            name
+                            dataType
+                          }
+                          ... on ProjectV2IterationField {
+                            id
+                            name
+                          }
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                            options {
+                              id
+                              name
+                            }
+                          }
+                          ... on ProjectV2NumberField {
+                            id
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              
+              const variables = { projectId };
+              
+              const result = await executeQuery(projectQuery, variables);
+              console.log('Project query result:', JSON.stringify(result, null, 2));
+              
+              if (!result.node || !result.node.fields) {
+                console.log('Could not retrieve project fields');
+                return;
+              }
+              
+              console.log(`Project name: ${result.node.title}`);
+              
+              // Find the CSAT score field
+              const fields = result.node.fields.nodes;
+              const csatField = fields.find(f => 
+                f.name && f.name.toLowerCase().includes('csat') || 
+                f.name && f.name.toLowerCase().includes('score')
+              );
+              
+              if (csatField) {
+                console.log(`Found CSAT field: ${csatField.name} (${csatField.id})`);
+                const csatScore = '${{ steps.get_issue.outputs.csat_score }}' || '0';
+                
+                // Skip if we don't have a score
+                if (csatScore && csatScore !== '0') {
+                  const csatValue = parseFloat(csatScore);
+                  
+                  try {
+                    // Determine the right data type to use
+                    let valueObj = {};
+                    if (csatField.dataType === 'TEXT') {
+                      valueObj = { text: csatScore };
+                    } else {
+                      valueObj = { number: csatValue };
+                    }
+                    
+                    const updateFieldMutation = `
+                      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: $projectId
+                          itemId: $itemId
+                          fieldId: $fieldId
+                          value: $value
+                        }) {
+                          projectV2Item {
+                            id
+                          }
+                        }
+                      }
+                    `;
+                    
+                    const updateVariables = {
+                      projectId,
+                      itemId,
+                      fieldId: csatField.id,
+                      value: valueObj
+                    };
+                    
+                    console.log(`Updating CSAT field with ${JSON.stringify(valueObj)}`);
+                    const updateResult = await executeQuery(updateFieldMutation, updateVariables);
+                    console.log('Field update result:', JSON.stringify(updateResult, null, 2));
+                    console.log('CSAT field updated successfully');
+                  } catch (error) {
+                    console.log(`Error updating CSAT field: ${error.message}`);
+                    
+                    // Try a few different formats as fallback
+                    try {
+                      console.log('Trying alternative field update approach...');
+                      // Direct mutation without variables
+                      const directMutation = `
+                        mutation {
+                          updateProjectV2ItemFieldValue(input: {
+                            projectId: "${projectId}"
+                            itemId: "${itemId}"
+                            fieldId: "${csatField.id}"
+                            value: { text: "${csatScore}" }
+                          }) {
+                            projectV2Item {
+                              id
+                            }
+                          }
+                        }
+                      `;
+                      
+                      const directResult = await github.graphql(directMutation);
+                      console.log('Direct field update result:', JSON.stringify(directResult, null, 2));
+                    } catch (fallbackError) {
+                      console.log(`Fallback attempt also failed: ${fallbackError.message}`);
+                    }
+                  }
+                }
+              } else {
+                console.log('No CSAT field found in project');
+              }
+              
+            } catch (error) {
+              console.log(`Error in project integration: ${error.message}`);
+              console.log(error.stack);
+            }
+
+      # If the above direct approach fails, try a simpler approach with the GitHub CLI
+      - name: Fallback - Use GitHub CLI
+        if: failure() || steps.add_to_project.outcome == 'failure'
+        run: |
+          echo "Attempting fallback approach with GitHub CLI"
+          
+          # Install GitHub CLI
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh
+          
+          # Authenticate with the PAT
+          echo "${{ secrets.PROJECT_PAT }}" | gh auth login --with-token
+          
+          # Get issue number from input or context
+          if [[ -n "${{ inputs.issue_number }}" ]]; then
+            ISSUE_NUMBER="${{ inputs.issue_number }}"
+          else
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          fi
+          
+          # Get issue info
+          gh issue view $ISSUE_NUMBER --repo ${{ github.repository }} --json title,url,number
+          
+          # Add to project using project URL
+          echo "Adding issue #$ISSUE_NUMBER to project..."
+          gh project item-add https://github.com/users/Johnaldy/projects/7 --url https://github.com/${{ github.repository }}/issues/$ISSUE_NUMBER
+          
+          echo "Project integration completed via CLI"
