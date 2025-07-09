@@ -1,0 +1,284 @@
+name: Add Issue to Project Board (CLI)
+
+on:
+  issues:
+    types: [opened, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to add to project"
+        required: true
+        type: number
+
+jobs:
+  add_to_project:
+    name: Add issue to project and set fields
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup GitHub CLI
+        run: |
+          # Install GitHub CLI
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh -y
+          
+          # Authenticate
+          echo "${{ secrets.PROJECT_PAT }}" | gh auth login --with-token
+          
+          # Debug auth status
+          gh auth status
+
+      - name: Get issue data
+        id: issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT }}
+          script: |
+            // Get issue number from context or input
+            let issueNumber;
+            if (context.payload.inputs && context.payload.inputs.issue_number) {
+              issueNumber = context.payload.inputs.issue_number;
+            } else if (context.payload.issue) {
+              issueNumber = context.payload.issue.number;
+            } else {
+              throw new Error("No issue number found");
+            }
+            
+            console.log(`Getting data for issue #${issueNumber}`);
+            
+            // Get issue details
+            const issue = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Extract CSAT score from title if present
+            let csatScore = null;
+            const csatMatch = issue.data.title.match(/\[CSAT: ([\d\.]+)\]/);
+            if (csatMatch && csatMatch[1]) {
+              csatScore = csatMatch[1];
+            }
+            
+            // Helper function to extract form fields
+            function extractValue(body, fieldName, isNumber = false) {
+              // Try multiple patterns to match various form formats
+              const patterns = [
+                // Form checkbox/dropdown selection format
+                new RegExp(`${fieldName}.*?\\n.*?- (.*?)($|\\n)`, 's'),
+                // Form input format
+                new RegExp(`${fieldName}.*?\\n\\s*(.*?)($|\\n)`, 's'),
+                // Key-value format
+                new RegExp(`${fieldName}.*?: *(.*?)($|\\n)`, 's'),
+                // GitHub form format with ###
+                new RegExp(`### ${fieldName}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's'),
+                // Direct match for numbers
+                isNumber ? new RegExp(`${fieldName}[\\s\\S]*?(\\d+\\.?\\d*)`) : null
+              ].filter(Boolean);
+              
+              for (const pattern of patterns) {
+                const match = body.match(pattern);
+                if (match && match[1]) {
+                  const value = match[1].trim();
+                  if (value && (!isNumber || !isNaN(parseFloat(value)))) {
+                    return value;
+                  }
+                }
+              }
+              
+              return null;
+            }
+            
+            // Extract data from issue body
+            const body = issue.data.body || '';
+            const partnerName = extractValue(body, 'Partner Name') || extractValue(body, 'Company') || "Unknown";
+            const engagementType = extractValue(body, 'Engagement Type') || "Unknown";
+            const dateCompleted = extractValue(body, 'Date Completed') || "Unknown";
+            const vertical = extractValue(body, 'Vertical') || extractValue(body, 'Industry') || "Unknown";
+            
+            // Save all data as outputs
+            core.setOutput('issue_number', issueNumber);
+            core.setOutput('issue_title', issue.data.title);
+            core.setOutput('csat_score', csatScore || "Unknown");
+            core.setOutput('partner_name', partnerName);
+            core.setOutput('engagement_type', engagementType);
+            core.setOutput('date_completed', dateCompleted);
+            core.setOutput('vertical', vertical);
+            
+            return {
+              issueNumber,
+              csatScore,
+              partnerName,
+              engagementType,
+              dateCompleted,
+              vertical
+            };
+
+      - name: Add to project and update fields (CLI)
+        run: |
+          # Get data from previous step
+          ISSUE_NUMBER="${{ steps.issue.outputs.issue_number }}"
+          ISSUE_TITLE="${{ steps.issue.outputs.issue_title }}"
+          CSAT_SCORE="${{ steps.issue.outputs.csat_score }}"
+          PARTNER_NAME="${{ steps.issue.outputs.partner_name }}"
+          ENGAGEMENT_TYPE="${{ steps.issue.outputs.engagement_type }}"
+          DATE_COMPLETED="${{ steps.issue.outputs.date_completed }}"
+          VERTICAL="${{ steps.issue.outputs.vertical }}"
+          
+          # Debug all values
+          echo "Issue #: $ISSUE_NUMBER"
+          echo "Title: $ISSUE_TITLE"
+          echo "CSAT Score: $CSAT_SCORE"
+          echo "Partner Name: $PARTNER_NAME"
+          echo "Engagement Type: $ENGAGEMENT_TYPE"
+          echo "Date Completed: $DATE_COMPLETED"
+          echo "Vertical: $VERTICAL"
+          
+          # Project URL
+          PROJECT_URL="https://github.com/users/Johnaldy/projects/7"
+          echo "Using project: $PROJECT_URL"
+          
+          # Add issue to project
+          echo "Adding issue #$ISSUE_NUMBER to project..."
+          ISSUE_URL="https://github.com/${{ github.repository }}/issues/$ISSUE_NUMBER"
+          
+          # Try to add the issue to the project
+          ITEM_ID=$(gh project item-add $PROJECT_URL --owner "Johnaldy" --url "$ISSUE_URL" --format json | jq -r '.id')
+          
+          if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
+            echo "Failed to add item or get item ID. Trying to look up existing item..."
+            
+            # Try to find item ID if it already exists in project
+            ITEMS_JSON=$(gh project item-list $PROJECT_URL --owner "Johnaldy" --format json)
+            ITEM_ID=$(echo $ITEMS_JSON | jq -r ".items[] | select(.content.url == \"$ISSUE_URL\") | .id")
+            
+            if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
+              echo "ERROR: Could not find item ID for issue #$ISSUE_NUMBER"
+              exit 1
+            else
+              echo "Found existing item ID: $ITEM_ID"
+            fi
+          else
+            echo "Successfully added issue to project with item ID: $ITEM_ID"
+          fi
+          
+          # List available fields to debug
+          echo "Available fields in project:"
+          FIELDS_JSON=$(gh project field-list $PROJECT_URL --owner "Johnaldy" --format json)
+          echo "$FIELDS_JSON" | jq -r '.[] | "- \(.name): \(.id) (\(.type))"'
+          
+          # Function to update a field by name
+          update_field() {
+            local field_name="$1"
+            local field_value="$2"
+            
+            if [ -z "$field_value" ] || [ "$field_value" == "Unknown" ]; then
+              echo "Skipping empty/unknown value for field '$field_name'"
+              return 0
+            fi
+            
+            # Find field ID by name (case insensitive)
+            local field_id=$(echo "$FIELDS_JSON" | jq -r ".[] | select(.name | ascii_downcase | contains(\"$field_name\" | ascii_downcase)) | .id")
+            
+            if [ -z "$field_id" ] || [ "$field_id" == "null" ]; then
+              echo "Could not find field '$field_name'"
+              return 1
+            fi
+            
+            local field_type=$(echo "$FIELDS_JSON" | jq -r ".[] | select(.id == \"$field_id\") | .type")
+            echo "Found field '$field_name' with ID: $field_id (type: $field_type)"
+            
+            if [ "$field_type" == "SINGLE_SELECT" ]; then
+              # For dropdown fields, we need to find the option ID
+              local options_json=$(gh project field-option-list $PROJECT_URL --owner "Johnaldy" --field-id "$field_id" --format json)
+              echo "Available options for '$field_name':"
+              echo "$options_json" | jq -r '.[] | "  - \(.name): \(.id)"'
+              
+              # Try to find matching option (case insensitive)
+              local option_id=$(echo "$options_json" | jq -r ".[] | select(.name | ascii_downcase | contains(\"$field_value\" | ascii_downcase)) | .id")
+              
+              if [ -z "$option_id" ] || [ "$option_id" == "null" ]; then
+                # Try reverse match
+                option_id=$(echo "$options_json" | jq -r ".[] | select(\"$field_value\" | ascii_downcase | contains(.name | ascii_downcase)) | .id" | head -n 1)
+              fi
+              
+              if [ -z "$option_id" ] || [ "$option_id" == "null" ]; then
+                echo "WARNING: Could not find matching option for '$field_value' in field '$field_name'"
+                return 1
+              fi
+              
+              echo "Setting field '$field_name' to option '$field_value' (ID: $option_id)"
+              gh project item-edit $PROJECT_URL --owner "Johnaldy" --id "$ITEM_ID" --field-id "$field_id" --project-field-value "$option_id"
+              
+            elif [ "$field_type" == "NUMBER" ]; then
+              echo "Setting field '$field_name' to number value: $field_value"
+              gh project item-edit $PROJECT_URL --owner "Johnaldy" --id "$ITEM_ID" --field-id "$field_id" --project-field-value "$field_value"
+              
+            else
+              # Default to text for other field types
+              echo "Setting field '$field_name' to text value: $field_value"
+              gh project item-edit $PROJECT_URL --owner "Johnaldy" --id "$ITEM_ID" --field-id "$field_id" --project-field-value "$field_value"
+            fi
+            
+            return $?
+          }
+          
+          # Update fields
+          echo "Updating fields for item $ITEM_ID..."
+          
+          # Try CSAT score
+          if [ -n "$CSAT_SCORE" ] && [ "$CSAT_SCORE" != "Unknown" ]; then
+            echo "Setting CSAT Score..."
+            update_field "csat" "$CSAT_SCORE" || update_field "score" "$CSAT_SCORE" || update_field "rating" "$CSAT_SCORE"
+          fi
+          
+          # Try Partner Name
+          if [ -n "$PARTNER_NAME" ] && [ "$PARTNER_NAME" != "Unknown" ]; then
+            echo "Setting Partner Name..."
+            update_field "partner" "$PARTNER_NAME" || update_field "company" "$PARTNER_NAME" || update_field "client" "$PARTNER_NAME"
+          fi
+          
+          # Try Engagement Type
+          if [ -n "$ENGAGEMENT_TYPE" ] && [ "$ENGAGEMENT_TYPE" != "Unknown" ]; then
+            echo "Setting Engagement Type..."
+            update_field "engagement" "$ENGAGEMENT_TYPE" || update_field "type" "$ENGAGEMENT_TYPE"
+          fi
+          
+          # Try Date Completed
+          if [ -n "$DATE_COMPLETED" ] && [ "$DATE_COMPLETED" != "Unknown" ]; then
+            echo "Setting Date Completed..."
+            update_field "date" "$DATE_COMPLETED" || update_field "completed" "$DATE_COMPLETED"
+          fi
+          
+          # Try Vertical
+          if [ -n "$VERTICAL" ] && [ "$VERTICAL" != "Unknown" ]; then
+            echo "Setting Vertical..."
+            update_field "vertical" "$VERTICAL" || update_field "industry" "$VERTICAL" || update_field "sector" "$VERTICAL"
+          fi
+          
+          # Set Status to first available status-like option
+          echo "Setting Status field to New/Todo..."
+          STATUS_FIELD_ID=$(echo "$FIELDS_JSON" | jq -r '.[] | select(.name | ascii_downcase | contains("status")) | .id')
+          
+          if [ -n "$STATUS_FIELD_ID" ] && [ "$STATUS_FIELD_ID" != "null" ]; then
+            echo "Found Status field with ID: $STATUS_FIELD_ID"
+            
+            # Get status options
+            STATUS_OPTIONS=$(gh project field-option-list $PROJECT_URL --owner "Johnaldy" --field-id "$STATUS_FIELD_ID" --format json)
+            
+            # Look for New/Todo/Backlog option
+            for STATUS_NAME in "New" "Todo" "To Do" "Backlog" "Triage" "Incoming"; do
+              STATUS_ID=$(echo "$STATUS_OPTIONS" | jq -r ".[] | select(.name | ascii_downcase | contains(\"$STATUS_NAME\" | ascii_downcase)) | .id" | head -n 1)
+              
+              if [ -n "$STATUS_ID" ] && [ "$STATUS_ID" != "null" ]; then
+                echo "Setting Status to '$STATUS_NAME' (ID: $STATUS_ID)"
+                gh project item-edit $PROJECT_URL --owner "Johnaldy" --id "$ITEM_ID" --field-id "$STATUS_FIELD_ID" --project-field-value "$STATUS_ID"
+                break
+              fi
+            done
+          else
+            echo "No Status field found"
+          fi
+          
+          echo "Project integration completed at 2025-07-09 00:31:24"
