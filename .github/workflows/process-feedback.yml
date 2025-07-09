@@ -10,7 +10,6 @@ jobs:
     if: contains(github.event.issue.title, '[Feedback]') || contains(github.event.issue.labels.*.name, 'feedback')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       issues: write
 
     steps:
@@ -180,7 +179,7 @@ jobs:
             🌎 **Vertical**: ${vertical}
             
             *This analysis was automatically generated based on the feedback submission.*
-            *Last processed: 2025-07-08 23:56:56 UTC*
+            *Last processed: 2025-07-09 00:09:33 UTC*
             `;
             
             github.rest.issues.createComment({
@@ -200,22 +199,24 @@ jobs:
               });
             }
 
-      # Trigger the project integration workflow
-      - name: Trigger Project Integration
+      # Trigger the new add-to-project workflow
+      - name: Trigger Add to Project
         if: steps.check_comments.outputs.skip_processing != 'true'
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.PROJECT_PAT }}
           script: |
-            // Trigger the project-integration workflow
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'project-integration.yml',
-              ref: context.ref,
-              inputs: {
-                issue_number: context.issue.number.toString()
-              }
-            });
-            
-            console.log(`Triggered project integration workflow for issue #${context.issue.number}`);
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'add-to-project.yml',
+                ref: 'main',
+                inputs: {
+                  issue_number: context.issue.number.toString()
+                }
+              });
+              console.log(`Triggered add-to-project workflow for issue #${context.issue.number}`);
+            } catch (error) {
+              console.log(`Error triggering add-to-project workflow: ${error.message}`);
+            }
