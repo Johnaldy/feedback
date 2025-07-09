@@ -140,11 +140,36 @@ jobs:
           echo "Using project: $PROJECT_URL"
           
           # Add issue to project
-          echo "Adding issue #$ISSUE_NUMBER to project..."
-          ISSUE_URL="https://github.com/${{ github.repository }}/issues/$ISSUE_NUMBER"
-          
-          # Try to add the issue to the project
-          ITEM_ID=$(gh project item-add $PROJECT_URL --owner "Johnaldy" --url "$ISSUE_URL" --format json | jq -r '.id')
+          # Add issue to project using correct format
+echo "Adding issue #$ISSUE_NUMBER to project..."
+ISSUE_URL="https://github.com/${{ github.repository }}/issues/$ISSUE_NUMBER"
+
+# Try to add the issue to the project with better error handling
+gh project item-add "$PROJECT_URL" --owner "Johnaldy" --url "$ISSUE_URL"
+
+# Verify item was added
+echo "Verifying issue was added to project..."
+ITEM_ID=$(gh project item-list "$PROJECT_URL" --owner "Johnaldy" --format json | jq -r ".items[] | select(.content.url == \"$ISSUE_URL\") | .id")
+
+if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
+  echo "Error: Could not find item ID for issue #$ISSUE_NUMBER in project"
+  echo "Listing recent items in project (up to 5):"
+  gh project item-list "$PROJECT_URL" --owner "Johnaldy" --limit 5 --format json
+  echo "Looking for issue URL: $ISSUE_URL"
+  
+  # Try one more time with a different approach
+  echo "Trying alternative approach to find item ID..."
+  ITEM_ID=$(gh project item-list "$PROJECT_URL" --owner "Johnaldy" --format json | jq -r ".items[] | select(.content.number == $ISSUE_NUMBER) | .id")
+  
+  if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
+    echo "ERROR: Could not find item ID for issue #$ISSUE_NUMBER"
+    exit 1
+  else
+    echo "Found existing item ID using issue number: $ITEM_ID"
+  fi
+else
+  echo "Successfully found item with ID: $ITEM_ID"
+fi
           
           if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" == "null" ]; then
             echo "Failed to add item or get item ID. Trying to look up existing item..."
