@@ -29,9 +29,9 @@ After completing an engagement with a customer, collect feedback using your pref
 
 3. Click "Submit new issue" to record the feedback
 
-### Step 3: Review CSAT Score
+### Step 3: Review Average Score
 After submission, a GitHub Action will automatically:
-- Calculate the overall CSAT score (average of the 4 metrics)
+- Calculate the overall Average score (average of the 4 metrics)
 - Add a comment to the issue with the calculated score
 - Apply appropriate labels based on the score
 
@@ -43,14 +43,14 @@ All feedback submissions are stored as GitHub Issues with the `feedback` label.
 ### Analyzing Feedback Data
 1. Go to the [Partner Engagement Feedback Project](https://github.com/johnaldy/partner_feedback/projects)
 2. Use the different views to analyze the data:
-   - "CSAT by Partner" - View feedback scores grouped by partner
+   - "Average by Partner" - View feedback scores grouped by partner
    - "All Feedback" - View all feedback submissions in a table format
 
 ### Filtering and Searching
 You can filter feedback data by:
 - Partner (using the Partner field)
 - Engagement Type (using the Engagement Type field)
-- CSAT Score category (using labels: csat-excellent, csat-good, csat-average, csat-needs-attention)
+- Average Score category (using labels: Average-excellent, Average-good, Average-average, Average-needs-attention)
 - Date range (using the Date Completed field)
 
 ### Exporting Data
