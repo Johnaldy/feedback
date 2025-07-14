@@ -57,11 +57,11 @@ jobs:
               core.setOutput('issue_title', issue.data.title);
               core.setOutput('is_feedback', 'true');
               
-              // Extract CSAT score from title if present
-              const csatMatch = issue.data.title.match(/\[CSAT: ([\d\.]+)\]/);
-              if (csatMatch && csatMatch[1]) {
-                core.setOutput('csat_score', csatMatch[1]);
-                console.log(`Found CSAT score: ${csatMatch[1]}`);
+              // Extract AVG score from title if present
+              const avgMatch = issue.data.title.match(/\[AVG: ([\d\.]+)\]/);
+              if (avgMatch && avgMatch[1]) {
+                core.setOutput('avg_score', avgMatch[1]);
+                console.log(`Found AVG score: ${avgMatch[1]}`);
               }
               
             } catch (error) {
@@ -180,28 +180,28 @@ jobs:
               
               console.log(`Project name: ${result.node.title}`);
               
-              // Find the CSAT score field
+              // Find the AVG score field
               const fields = result.node.fields.nodes;
-              const csatField = fields.find(f => 
-                f.name && f.name.toLowerCase().includes('csat') || 
+              const avgField = fields.find(f => 
+                f.name && f.name.toLowerCase().includes('avg') || 
                 f.name && f.name.toLowerCase().includes('score')
               );
               
-              if (csatField) {
-                console.log(`Found CSAT field: ${csatField.name} (${csatField.id})`);
-                const csatScore = '${{ steps.get_issue.outputs.csat_score }}' || '0';
+              if (avgField) {
+                console.log(`Found AVG field: ${avgField.name} (${avgField.id})`);
+                const avgScore = '${{ steps.get_issue.outputs.avg_score }}' || '0';
                 
                 // Skip if we don't have a score
-                if (csatScore && csatScore !== '0') {
-                  const csatValue = parseFloat(csatScore);
+                if (avgScore && avgScore !== '0') {
+                  const avgValue = parseFloat(avgScore);
                   
                   try {
                     // Determine the right data type to use
                     let valueObj = {};
-                    if (csatField.dataType === 'TEXT') {
-                      valueObj = { text: csatScore };
+                    if (avgField.dataType === 'TEXT') {
+                      valueObj = { text: avgScore };
                     } else {
-                      valueObj = { number: csatValue };
+                      valueObj = { number: avgValue };
                     }
                     
                     const updateFieldMutation = `
@@ -222,16 +222,16 @@ jobs:
                     const updateVariables = {
                       projectId,
                       itemId,
-                      fieldId: csatField.id,
+                      fieldId: avgField.id,
                       value: valueObj
                     };
                     
-                    console.log(`Updating CSAT field with ${JSON.stringify(valueObj)}`);
+                    console.log(`Updating AVG field with ${JSON.stringify(valueObj)}`);
                     const updateResult = await executeQuery(updateFieldMutation, updateVariables);
                     console.log('Field update result:', JSON.stringify(updateResult, null, 2));
-                    console.log('CSAT field updated successfully');
+                    console.log('AVG field updated successfully');
                   } catch (error) {
-                    console.log(`Error updating CSAT field: ${error.message}`);
+                    console.log(`Error updating AVG field: ${error.message}`);
                     
                     // Try a few different formats as fallback
                     try {
@@ -242,8 +242,8 @@ jobs:
                           updateProjectV2ItemFieldValue(input: {
                             projectId: "${projectId}"
                             itemId: "${itemId}"
-                            fieldId: "${csatField.id}"
-                            value: { text: "${csatScore}" }
+                            fieldId: "${avgField.id}"
+                            value: { text: "${avgScore}" }
                           }) {
                             projectV2Item {
                               id
@@ -260,7 +260,7 @@ jobs:
                   }
                 }
               } else {
-                console.log('No CSAT field found in project');
+                console.log('No AVG field found in project');
               }
               
             } catch (error) {
