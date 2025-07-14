@@ -1,6 +1,7 @@
 name: Partner Engagement Feedback
 description: Form for collecting customer feedback on partner-delivered engagements
 title: "[Feedback]: "
+placeholder: "Customer Name, Engagement Details, eg FISERV Copilot Adoption 2025"
 labels: ["feedback", "partner engagement", "metrics"]
 assignees: []
 body:
