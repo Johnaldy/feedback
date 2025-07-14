@@ -42,13 +42,13 @@ This document provides step-by-step instructions for implementing the Partner En
    - Click on Projects > New project
    - Create a project named "Partner Engagement Feedback Tracker"
    - Add custom fields for:
-     - CSAT Score (Number)
+     - AVG Score (Number)
      - Partner (Single select)
      - Engagement Type (Single select)
      - Date Completed (Date)
    - Create views for:
-     - CSAT by Partner (Board layout)
-     - CSAT Timeline (Roadmap layout)
+     - AVG Score by Partner (Board layout)
+     - AVG Score Timeline (Roadmap layout)
      - All Feedback (Table layout)
 
 ### 4. Set Up Dashboard (optional)
@@ -67,10 +67,10 @@ This document provides step-by-step instructions for implementing the Partner En
 
 Create the following labels in the repository:
 - `feedback` - For all feedback submissions
-- `csat-excellent` - For CSAT scores ≥ 4.5
-- `csat-good` - For CSAT scores ≥ 4.0
-- `csat-average` - For CSAT scores ≥ 3.0
-- `csat-needs-attention` - For CSAT scores < 3.0
+- `avg-excellent` - For AVG scores ≥ 4.5
+- `avg-good` - For AVG scores ≥ 4.0
+- `avg-average` - For AVG scores ≥ 3.0
+- `avg-needs-attention` - For AVG scores < 3.0
 
 ### 6. Documentation
 
@@ -84,7 +84,7 @@ Create the following labels in the repository:
 After implementation, verify the system works correctly:
 
 1. Submit a test feedback issue
-2. Verify the CSAT score is calculated correctly
+2. Verify the AVG score is calculated correctly
 3. Check that the issue appears in the project
 4. Confirm the dashboard displays data correctly (if implemented)
 5. Test the reminder workflow using manual dispatch
