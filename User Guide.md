@@ -13,7 +13,7 @@ After completing an engagement with a customer, collect feedback using your pref
 - Any additional comments or suggestions
 
 ### Step 2: Submit Feedback via GitHub Issue
-1. Go to [Submit Partner Feedback](https://github.com/johnaldy/partner_feedback/issues/new?template=partner-feedback.yml)
+1. Go to [Submit Partner Feedback](https://github.com/johnaldy/feedback/issues/new?template=partner-feedback.yml)
 2. Fill out all required fields in the form:
    - Partner Name (select from dropdown)
    - Date Completed (when the engagement ended)
@@ -41,7 +41,7 @@ After submission, a GitHub Action will automatically:
 All feedback submissions are stored as GitHub Issues with the `feedback` label.
 
 ### Analyzing Feedback Data
-1. Go to the [Partner Engagement Feedback Project](https://github.com/johnaldy/partner_feedback/projects)
+1. Go to the [Partner Engagement Feedback Project](https://github.com/johnaldy/feedback/projects)
 2. Use the different views to analyze the data:
    - "Average by Partner" - View feedback scores grouped by partner
    - "All Feedback" - View all feedback submissions in a table format
