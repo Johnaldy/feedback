@@ -14,8 +14,8 @@ This repository implements a feedback collection and analysis system using GitHu
 1. Partners collect feedback from customers after engagements
 2. Partners submit feedback using the standardized issue template
 3. GitHub Actions automatically calculate Average scores and apply labels
-4. Feedback data is visualized in the GitHub Project board
-5. Weekly reminders are sent for outstanding feedback collection
+4. Feedback data is visualized in the GitHub Project board _(Future)_
+5. Weekly reminders are sent for outstanding feedback collection _(Future)_
 
 ## Getting Started
 
