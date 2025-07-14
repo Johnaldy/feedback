@@ -129,11 +129,11 @@ body:
       label: AVG Impact/Value of Service
       description: Average score for impact/value of service (1-5)
       options:
-        - 5 - Excellent
-        - 4 - Good
-        - 3 - Satisfactory
-        - 2 - Below Average
-        - 1 - Poor
+        - 5 - Extremely Impactful
+        - 4 - Very Impactful
+        - 3 - Moderately Impactful
+        - 2 - Slightly Impactful
+        - 1 - Not Impactful
     validations:
       required: true
       
