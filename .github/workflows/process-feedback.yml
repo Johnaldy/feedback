@@ -13,8 +13,8 @@ jobs:
       issues: write
 
     steps:
-      # Add this check to prevent duplicate runs on edited issues that already have CSAT comments
-      - name: Check for existing CSAT comments
+      # Add this check to prevent duplicate runs on edited issues that already have AVG comments
+      - name: Check for existing AVG comments
         id: check_comments
         uses: actions/github-script@v6
         with:
@@ -131,15 +131,15 @@ jobs:
             const dateCompleted = extractValue('Date Completed');
             const vertical = extractValue('Vertical');
             
-            // Calculate CSAT score
-            let csatScore = 0;
+            // Calculate AVG score
+            let avgScore = 0;
             let validRatings = 0;
             
             const addRating = (rating) => {
               if (rating) {
                 const value = parseFloat(rating);
                 if (!isNaN(value)) {
-                  csatScore += value;
+                  avgScore += value;
                   validRatings += 1;
                 }
               }
@@ -150,29 +150,29 @@ jobs:
             addRating(communication);
             addRating(impactValue);
             
-            const finalCsatScore = validRatings > 0 ? (csatScore / validRatings).toFixed(2) : "N/A";
-            console.log(`Final CSAT Score: ${finalCsatScore} (from ${validRatings} valid ratings)`);
+            const finalCsatScore = validRatings > 0 ? (avgScore / validRatings).toFixed(2) : "N/A";
+            console.log(`Final AVG Score: ${finalCsatScore} (from ${validRatings} valid ratings)`);
             
             // Set outputs
-            core.setOutput('csat_score', finalCsatScore);
+            core.setOutput('avg_score', finalCsatScore);
             core.setOutput('partner_name', partnerName || "Unknown");
             core.setOutput('engagement_type', engagementType || "Unknown");
             core.setOutput('date_completed', dateCompleted || "Unknown");
             core.setOutput('vertical', vertical || "Unknown");
 
-      - name: Add CSAT score comment
+      - name: Add AVG score comment
         if: steps.check_comments.outputs.skip_processing != 'true'
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.PROJECT_PAT }}
           script: |
-            const csatScore = '${{ steps.extract_data.outputs.csat_score }}';
+            const avgScore = '${{ steps.extract_data.outputs.avg_score }}';
             const partner = '${{ steps.extract_data.outputs.partner_name }}';
             const vertical = '${{ steps.extract_data.outputs.vertical }}';
             
             const comment = `## Feedback Analysis
             
-            📊 **CSAT Score**: ${csatScore}
+            📊 **AVG Score**: ${avgScore}
             👥 **Partner**: ${partner}
             📅 **Date Completed**: ${{ steps.extract_data.outputs.date_completed }}
             📝 **Engagement Type**: ${{ steps.extract_data.outputs.engagement_type }}
@@ -189,13 +189,13 @@ jobs:
               body: comment
             });
             
-            // Update issue title to include CSAT score if not already there
-            if (!context.payload.issue.title.includes('CSAT:')) {
+            // Update issue title to include AVG score if not already there
+            if (!context.payload.issue.title.includes('AVG:')) {
               github.rest.issues.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                title: `${context.payload.issue.title} [CSAT: ${csatScore}]`
+                title: `${context.payload.issue.title} [AVG: ${avgScore}]`
               });
             }
 
