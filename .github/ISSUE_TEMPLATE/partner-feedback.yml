@@ -181,5 +181,5 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## CSAT Average
+        ## Average Score
         *This will be calculated automatically based on the average scores above.*
