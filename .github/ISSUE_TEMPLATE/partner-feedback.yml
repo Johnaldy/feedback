@@ -77,7 +77,7 @@ body:
     attributes:
       label: Number of Responses Received
       description: How many customer responses were collected for this feedback
-      placeholder: "3"
+      placeholder: "30"
     validations:
       required: true
       
@@ -85,7 +85,7 @@ body:
     id: avg_satisfaction
     attributes:
       label: AVG Overall Customer Satisfaction
-      description: How would you rate your overall satisfaction with the engagement?
+      description: Average score for overall satisfaction with the engagement (1-5)
       options:
         - 5 - Extremely Satisfied
         - 4 - Very Satisfied
@@ -141,7 +141,7 @@ body:
     id: vertical
     attributes:
       label: Vertical
-      description: Industry vertical of the customer
+      description: GitHub Vertical
       options:
         - AMER 
         - AMER-Corps
