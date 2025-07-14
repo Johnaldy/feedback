@@ -66,8 +66,8 @@ jobs:
             const issue = context.payload.issue;
             const body = issue.body;
             
-            // Debug output to see the full body content
-            console.log("Processing feedback extraction for issue:", issue.number);
+            // Log the full body for debugging
+            console.log("Issue Body:", body);
             
             // Function to extract numeric rating from dropdown selection
             function extractRating(value) {
@@ -81,70 +81,121 @@ jobs:
               return null;
             }
             
-            // Modified helper function specifically for GitHub form fields
-            function extractFormField(fieldId) {
-              const pattern = new RegExp(`### ${fieldId}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's');
-              const match = body.match(pattern);
+            // This more comprehensive function tries multiple patterns to extract form data
+            function extractFormValue(fieldName, fieldId) {
+              // Array of regex patterns to try
+              const patterns = [
+                // GitHub form format with field ID
+                new RegExp(`### ${fieldId}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's'),
+                // GitHub form format with field name
+                new RegExp(`### ${fieldName}\\s*\\r?\\n\\s*(.+?)(?=\\r?\\n###|$)`, 's'),
+                // Standard form field format
+                new RegExp(`${fieldName}[\\s\\S]*?\\n[\\s\\*]*(.+?)(?=\\n|$)`, 's'),
+                // Simple key-value format
+                new RegExp(`${fieldName}[\\s\\S]*?: *(.+?)(?=\\n|$)`, 's'),
+                // Checkbox/dropdown format
+                new RegExp(`${fieldName}[\\s\\S]*?\\n[\\s\\*]*- \\[(?:x|X)\\] *(.+?)(?=\\n|$)`, 's'),
+                // Plain list format
+                new RegExp(`${fieldName}[\\s\\S]*?\\n[\\s\\*]*- *(.+?)(?=\\n|$)`, 's'),
+              ];
               
-              if (match && match[1]) {
-                return match[1].trim();
+              // Try each pattern
+              for (const pattern of patterns) {
+                const match = body.match(pattern);
+                if (match && match[1]) {
+                  const value = match[1].trim();
+                  console.log(`Found ${fieldName}/${fieldId}: ${value} using pattern ${pattern}`);
+                  return value;
+                }
               }
+              
+              console.log(`Could not find value for ${fieldName}/${fieldId}`);
               return null;
             }
             
-            // Extract form field values using their IDs from the form template
-            const partnerName = extractFormField('partner_name') || extractFormField('other_partner');
-            const dateCompleted = extractFormField('date_completed');
-            const engagementType = extractFormField('engagement_type');
-            const vertical = extractFormField('vertical');
+            // Field mappings
+            const fieldMap = [
+              { name: 'Partner Name', id: 'partner_name' },
+              { name: 'Date Completed', id: 'date_completed' },
+              { name: 'Engagement Type', id: 'engagement_type' },
+              { name: 'AVG Overall Customer Satisfaction', id: 'avg_satisfaction' },
+              { name: 'AVG Quality of Work/Material', id: 'avg_quality' },
+              { name: 'AVG Effectiveness of Communication', id: 'avg_communication' },
+              { name: 'AVG Impact/Value of Service', id: 'avg_impact' },
+              { name: 'Vertical', id: 'vertical' }
+            ];
             
-            // Extract ratings as full text strings first
-            const satisfactionText = extractFormField('avg_satisfaction');
-            const qualityText = extractFormField('avg_quality');
-            const communicationText = extractFormField('avg_communication');
-            const impactText = extractFormField('avg_impact');
+            // Extract all field values
+            let extractedValues = {};
+            for (const field of fieldMap) {
+              extractedValues[field.id] = extractFormValue(field.name, field.id);
+            }
             
-            // Convert ratings to numeric values
-            const overallSatisfaction = extractRating(satisfactionText);
-            const qualityOfWork = extractRating(qualityText);
-            const communication = extractRating(communicationText);
-            const impactValue = extractRating(impactText);
+            // Special case for "other" partner
+            if (extractedValues.partner_name === 'Other') {
+              const otherPartner = extractFormValue('If Other, specify partner name', 'other_partner');
+              if (otherPartner) {
+                extractedValues.partner_name = otherPartner;
+              }
+            }
             
-            // Debug outputs
-            console.log('Extracted Partner Name:', partnerName);
-            console.log('Extracted Engagement Type:', engagementType);
-            console.log('Extracted Date Completed:', dateCompleted);
-            console.log('Extracted Vertical:', vertical);
-            console.log('Satisfaction Rating:', overallSatisfaction);
-            console.log('Quality Rating:', qualityOfWork);
-            console.log('Communication Rating:', communication);
-            console.log('Impact Rating:', impactValue);
-            
-            // Calculate AVG score
-            let avgScore = 0;
+            // Extract rating scores
+            const ratingFields = ['avg_satisfaction', 'avg_quality', 'avg_communication', 'avg_impact'];
+            let totalScore = 0;
             let validRatings = 0;
             
-            const addRating = (rating) => {
-              if (rating !== null && !isNaN(rating)) {
-                avgScore += rating;
-                validRatings += 1;
+            for (const field of ratingFields) {
+              const ratingText = extractedValues[field];
+              if (ratingText) {
+                // First try direct numeric extraction (for values like "5 - Excellent")
+                let score = null;
+                const numericMatch = ratingText.match(/^(\d+)/);
+                if (numericMatch && numericMatch[1]) {
+                  score = parseFloat(numericMatch[1]);
+                }
+                
+                // If that fails, try mapping text ratings to scores
+                if (score === null) {
+                  const ratingMap = {
+                    'extremely satisfied': 5, 'very satisfied': 4, 'satisfied': 3,
+                    'somewhat dissatisfied': 2, 'very dissatisfied': 1,
+                    'excellent': 5, 'good': 4, 'satisfactory': 3,
+                    'below average': 2, 'poor': 1,
+                    'extremely impactful': 5, 'very impactful': 4, 'moderately impactful': 3,
+                    'slightly impactful': 2, 'not impactful': 1
+                  };
+                  
+                  // Try to match text rating (case insensitive)
+                  const lowerRating = ratingText.toLowerCase();
+                  for (const [text, value] of Object.entries(ratingMap)) {
+                    if (lowerRating.includes(text)) {
+                      score = value;
+                      break;
+                    }
+                  }
+                }
+                
+                if (score !== null && !isNaN(score)) {
+                  console.log(`${field} score: ${score} (from "${ratingText}")`);
+                  totalScore += score;
+                  validRatings += 1;
+                }
               }
-            };
+            }
             
-            addRating(overallSatisfaction);
-            addRating(qualityOfWork);
-            addRating(communication);
-            addRating(impactValue);
+            // Calculate final AVG score
+            const finalAvgScore = validRatings > 0 ? (totalScore / validRatings).toFixed(2) : "N/A";
+            console.log(`Final AVG Score: ${finalAvgScore} (from ${validRatings} valid ratings out of ${ratingFields.length})`);
             
-            const finalCsatScore = validRatings > 0 ? (avgScore / validRatings).toFixed(2) : "N/A";
-            console.log(`Final AVG Score: ${finalCsatScore} (from ${validRatings} valid ratings)`);
+            // Set outputs
+            core.setOutput('avg_score', finalAvgScore);
+            core.setOutput('partner_name', extractedValues.partner_name || "Unknown");
+            core.setOutput('date_completed', extractedValues.date_completed || "Unknown");
+            core.setOutput('engagement_type', extractedValues.engagement_type || "Unknown");
+            core.setOutput('vertical', extractedValues.vertical || "Unknown");
             
-            // Set outputs - ensure these are properly escaped and trimmed
-            core.setOutput('avg_score', finalCsatScore);
-            core.setOutput('partner_name', partnerName || "Unknown");
-            core.setOutput('engagement_type', engagementType || "Unknown");
-            core.setOutput('date_completed', dateCompleted || "Unknown");
-            core.setOutput('vertical', vertical || "Unknown");
+            // Debug info
+            console.log("EXTRACTED VALUES:", JSON.stringify(extractedValues, null, 2));
 
       # Add step to generate timestamp in UTC
       - name: Get current timestamp
@@ -161,15 +212,15 @@ jobs:
             // Retrieve the extracted data
             const avgScore = '${{ steps.extract_data.outputs.avg_score }}';
             const partnerName = '${{ steps.extract_data.outputs.partner_name }}';
-            const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
             const dateCompleted = '${{ steps.extract_data.outputs.date_completed }}';
+            const engagementType = '${{ steps.extract_data.outputs.engagement_type }}';
             const vertical = '${{ steps.extract_data.outputs.vertical }}';
             
-            console.log("Comment Generation Values:");
+            console.log("Comment Values:");
             console.log("AVG Score:", avgScore);
             console.log("Partner Name:", partnerName);
-            console.log("Engagement Type:", engagementType);
             console.log("Date Completed:", dateCompleted);
+            console.log("Engagement Type:", engagementType);
             console.log("Vertical:", vertical);
             
             const comment = `## Feedback Analysis
