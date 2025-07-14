@@ -6,14 +6,14 @@ A system for collecting, tracking, and analyzing customer feedback on partner-de
 
 This repository implements a feedback collection and analysis system using GitHub's native features:
 - **Issue Templates** for structured feedback collection
-- **GitHub Actions** for automatic CSAT calculation and processing
+- **GitHub Actions** for automatic Average calculation and processing
 - **GitHub Projects** for visualization and analysis
 
 ## How It Works
 
 1. Partners collect feedback from customers after engagements
 2. Partners submit feedback using the standardized issue template
-3. GitHub Actions automatically calculate CSAT scores and apply labels
+3. GitHub Actions automatically calculate Average scores and apply labels
 4. Feedback data is visualized in the GitHub Project board
 5. Weekly reminders are sent for outstanding feedback collection
 
@@ -29,7 +29,7 @@ This repository implements a feedback collection and analysis system using GitHu
 
 1. View all feedback in the [Issues tab](https://github.com/johnaldy/partner_feedback/issues?q=is%3Aissue+label%3Afeedback)
 2. Use the [Project board](https://github.com/johnaldy/feedback/projects) for visualization and analysis
-3. Filter feedback by partner, engagement type, or CSAT score using labels
+3. Filter feedback by partner, engagement type, or Average score using labels
 
 ## Metrics Collected
 
@@ -48,11 +48,11 @@ The feedback system collects the following metrics:
 - Customer Suggestions/Comments
 - Recommendations for GitHub
 - Suggested Add-on Products
-- CSAT Score (calculated automatically)
+- Average Score (calculated automatically)
 
-## CSAT Score Calculation
+## Average Score Calculation
 
-The CSAT (Customer Satisfaction) score is calculated as the average of four metrics:
+The Average (Customer Satisfaction) score is calculated as the average of four metrics:
 1. Overall Satisfaction
 2. Quality of Work/Material
 3. Effectiveness of Communication
