@@ -81,39 +81,59 @@ body:
     validations:
       required: true
       
-  - type: input
+  - type: dropdown
     id: avg_satisfaction
     attributes:
       label: AVG Overall Customer Satisfaction
-      description: Average overall satisfaction score (1-5)
-      placeholder: "5"
+       description: How would you rate your overall satisfaction with the engagement?
+      options:
+        - 5 - Extremely Satisfied
+        - 4 - Very Satisfied
+        - 3 - Satisfied
+        - 2 - Somewhat Dissatisfied
+        - 1 - Very Dissatisfied
     validations:
       required: true
       
-  - type: input
+  - type: dropdown
     id: avg_quality
     attributes:
       label: AVG Quality of Work/Material
-      description: Average score for quality of work/materials (1-5)
-      placeholder: "5"
+      description: Average score for quality of work/material effectiveness (1-5)
+      options:
+        - 5 - Excellent
+        - 4 - Good
+        - 3 - Satisfactory
+        - 2 - Below Average
+        - 1 - Poor
     validations:
       required: true
       
-  - type: input
+  - type: dropdown
     id: avg_communication
     attributes:
       label: AVG Effectiveness of Communication
       description: Average score for communication effectiveness (1-5)
-      placeholder: "5"
+      options:
+        - 5 - Excellent
+        - 4 - Good
+        - 3 - Satisfactory
+        - 2 - Below Average
+        - 1 - Poor
     validations:
       required: true
       
-  - type: input
+  - type: dropdown
     id: avg_impact
     attributes:
       label: AVG Impact/Value of Service
       description: Average score for impact/value of service (1-5)
-      placeholder: "5"
+      options:
+        - 5 - Excellent
+        - 4 - Good
+        - 3 - Satisfactory
+        - 2 - Below Average
+        - 1 - Poor
     validations:
       required: true
       
@@ -161,5 +181,5 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## CSAT Score
+        ## CSAT Average
         *This will be calculated automatically based on the average scores above.*
