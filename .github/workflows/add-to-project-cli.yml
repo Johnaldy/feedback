@@ -54,11 +54,11 @@ jobs:
               issue_number: issueNumber
             });
             
-            // Extract CSAT score from title if present
-            let csatScore = null;
-            const csatMatch = issue.data.title.match(/\[CSAT: ([\d\.]+)\]/);
-            if (csatMatch && csatMatch[1]) {
-              csatScore = csatMatch[1];
+            // Extract AVG score from title if present
+            let avgScore = null;
+            const avgMatch = issue.data.title.match(/\[AVG: ([\d\.]+)\]/);
+            if (avgMatch && avgMatch[1]) {
+              avgScore = avgMatch[1];
             }
             
             // Helper function to extract form fields
@@ -100,7 +100,7 @@ jobs:
             // Save all data as outputs
             core.setOutput('issue_number', issueNumber);
             core.setOutput('issue_title', issue.data.title);
-            core.setOutput('csat_score', csatScore || "Unknown");
+            core.setOutput('AVG_SCORE', avgScore || "Unknown");
             core.setOutput('partner_name', partnerName);
             core.setOutput('engagement_type', engagementType);
             core.setOutput('date_completed', dateCompleted);
@@ -108,7 +108,7 @@ jobs:
             
             return {
               issueNumber,
-              csatScore,
+              avgScore,
               partnerName,
               engagementType,
               dateCompleted,
@@ -120,7 +120,7 @@ jobs:
           # Get data from previous step
           ISSUE_NUMBER="${{ steps.issue.outputs.issue_number }}"
           ISSUE_TITLE="${{ steps.issue.outputs.issue_title }}"
-          CSAT_SCORE="${{ steps.issue.outputs.csat_score }}"
+          AVG_SCORE="${{ steps.issue.outputs.AVG_SCORE }}"
           PARTNER_NAME="${{ steps.issue.outputs.partner_name }}"
           ENGAGEMENT_TYPE="${{ steps.issue.outputs.engagement_type }}"
           DATE_COMPLETED="${{ steps.issue.outputs.date_completed }}"
@@ -129,7 +129,7 @@ jobs:
           # Debug all values
           echo "Issue #: $ISSUE_NUMBER"
           echo "Title: $ISSUE_TITLE"
-          echo "CSAT Score: $CSAT_SCORE"
+          echo "AVg Score: $AVG_SCORE"
           echo "Partner Name: $PARTNER_NAME"
           echo "Engagement Type: $ENGAGEMENT_TYPE"
           echo "Date Completed: $DATE_COMPLETED"
@@ -234,10 +234,10 @@ jobs:
           # Update fields
           echo "Updating fields for item $ITEM_ID..."
           
-          # Try CSAT score
-          if [ -n "$CSAT_SCORE" ] && [ "$CSAT_SCORE" != "Unknown" ]; then
-            echo "Setting CSAT Score..."
-            update_field "csat" "$CSAT_SCORE" || update_field "score" "$CSAT_SCORE" || update_field "rating" "$CSAT_SCORE"
+          # Try Average Score
+          if [ -n "$AVG_SCORE" ] && [ "$AVG_SCORE" != "Unknown" ]; then
+            echo "Setting Average Acore..."
+            update_field "avg_score" "$AVG_SCORE" || update_field "score" "$AVG_SCORE" || update_field "rating" "$AVG_SCORE"
           fi
           
           # Try Partner Name
