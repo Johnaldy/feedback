@@ -21,13 +21,13 @@ This repository implements a feedback collection and analysis system using GitHu
 
 ### For Partners Submitting Feedback
 
-1. Go to [Submit New Feedback](https://github.com/johnaldy/partner_feedback/issues/new?template=partner-feedback.yml)
+1. Go to [Submit New Feedback](https://github.com/johnaldy/feedback/issues/new?template=partner-feedback.yml)
 2. Fill out all required fields with the customer feedback data
 3. Submit the issue
 
 ### For Team Members Analyzing Feedback
 
-1. View all feedback in the [Issues tab](https://github.com/johnaldy/partner_feedback/issues?q=is%3Aissue+label%3Afeedback)
+1. View all feedback in the [Issues tab](https://github.com/johnaldy/feedback/issues?q=is%3Aissue+label%3Afeedback)
 2. Use the [Project board](https://github.com/johnaldy/feedback/projects) for visualization and analysis
 3. Filter feedback by partner, engagement type, or Average score using labels
 
