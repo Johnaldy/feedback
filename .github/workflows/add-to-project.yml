@@ -59,12 +59,12 @@ jobs:
             core.setOutput('issue_id', issueId);
             core.setOutput('issue_number', issueNumber);
             
-            // Extract CSAT from title if present
-            const csatMatch = issueData.repository.issue.title.match(/\[CSAT: ([\d\.]+)\]/);
-            if (csatMatch && csatMatch[1]) {
-              const csatScore = parseFloat(csatMatch[1]);
-              console.log(`Found CSAT score: ${csatScore}`);
-              core.setOutput('csat_score', csatScore);
+            // Extract AVG from title if present
+            const avgMatch = issueData.repository.issue.title.match(/\[AVG: ([\d\.]+)\]/);
+            if (avgMatch && avgMatch[1]) {
+              const avgScore = parseFloat(avgMatch[1]);
+              console.log(`Found AVG score: ${avgScore}`);
+              core.setOutput('avg_score', avgScore);
             }
             
             // Helper function to extract form fields with various formats
@@ -500,16 +500,16 @@ jobs:
               }
               
               // Get values from context
-              const csatScore = '${{ steps.get_issue.outputs.csat_score }}' || null;
+              const avgScore = '${{ steps.get_issue.outputs.avg_score }}' || null;
               const partnerName = '${{ steps.get_issue.outputs.partner_name }}' || null;
               const engagementType = '${{ steps.get_issue.outputs.engagement_type }}' || null;
               const vertical = '${{ steps.get_issue.outputs.vertical }}' || null;
               
-              // Update CSAT Score field
-              if (csatScore) {
-                const csatField = findField(['csat', 'score', 'rating']);
-                if (csatField) {
-                  await updateField(csatField, csatScore);
+              // Update AVG Score field
+              if (avgScore) {
+                const avgField = findField(['avg', 'score', 'rating']);
+                if (avgField) {
+                  await updateField(avgField, avgScore);
                 }
               }
               
