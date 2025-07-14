@@ -85,7 +85,7 @@ body:
     id: avg_satisfaction
     attributes:
       label: AVG Overall Customer Satisfaction
-       description: How would you rate your overall satisfaction with the engagement?
+      description: How would you rate your overall satisfaction with the engagement?
       options:
         - 5 - Extremely Satisfied
         - 4 - Very Satisfied
